@@ -1,0 +1,151 @@
+setPage(0);
+
+
+
+
+
+ليبل
+
+sx={{
+      borderRadius: '4px',
+        fontFamily: 'Alexandria, sans-serif',
+        fontWeight: 400,
+        fontSize: '16px',
+        direction: 'rtl',
+      
+    }}
+
+
+
+
+textbox
+
+variant="filled"
+sx={{
+      borderRadius: '4px',
+      '& .MuiInputBase-input': {
+        fontFamily: 'Alexandria, sans-serif',
+        fontWeight: 400,
+        fontSize: '13px',
+        direction: 'rtl',
+      },
+      '& .MuiInputLabel-root': {
+        fontFamily: 'Alexandria, sans-serif',
+        fontWeight: 400,
+        fontSize: '13px',
+        direction: 'rtl',
+      },
+      '& input::placeholder': {
+        fontFamily: 'Alexandria, sans-serif',
+        fontWeight: 400,
+        fontSize: '13px',
+      },
+    }}
+
+
+
+
+
+dropbox
+<FormControl fullWidth variant="filled" margin="normal"
+    sx={{
+      '& .MuiInputBase-input': {
+        fontFamily: 'Alexandria, sans-serif',
+        fontWeight: 400,
+        fontSize: '13px',
+        direction: 'rtl',
+      },
+      '& .MuiInputLabel-root': {
+        fontFamily: 'Alexandria, sans-serif',
+        fontWeight: 400,
+        fontSize: '13px',
+        direction: 'rtl',
+      }
+    }}
+  >
+
+
+variant="filled"
+  sx={{
+    fontFamily: 'Alexandria, sans-serif',
+    fontWeight: 400,
+    fontSize: '13px',
+    direction: 'rtl',
+  }}
+
+  sx={{
+    fontFamily: 'Alexandria, sans-serif',
+    fontWeight: 400,
+    fontSize: '15px',
+    direction: 'rtl',
+  }}
+
+
+
+
+
+  timepicker
+   <LocalizationProvider
+  dateAdapter={AdapterDayjs}
+  adapterLocale="ar"
+>
+  <DatePicker
+    label="اختر التاريخ"
+    value={selectedDate}
+    onChange={(newValue) => {
+      setSelectedDate(newValue);
+      setSelectedDriver('');
+      setSearchQuery('');
+    }}
+    format="YYYY-MM-DD"    // استخدم prop الجديد
+    mask="____-__-__"      // قناع YYYY-MM-DD
+    slotProps={{
+      textField: {
+        variant: 'filled',
+        InputProps: {
+          sx: {
+            fontFamily: 'Alexandria, sans-serif',
+            fontWeight: 400,
+            fontSize: '14px',
+            direction: 'rtl',
+          },
+        },
+        InputLabelProps: {
+          sx: {
+            fontFamily: 'Alexandria, sans-serif',
+            fontWeight: 400,
+            fontSize: '12px',
+            direction: 'rtl',
+          },
+        },
+      },
+    }}
+    className="mb-2"
+  />
+</LocalizationProvider>
+
+
+
+
+table
+, backgroundColor: '#2c2c4d', color: 'white',fontFamily: 'Alexandria, sans-serif',fontWeight: '400',fontSize: '13px'
+
+
+
+ style={{fontFamily: 'Alexandria, sans-serif',fontWeight: '400',fontSize: '13px' }}  align="center"
+
+
+import TablePaginationActionsRtl from "@/app/components/TablePaginationActionsRtl";
+
+
+<TablePagination
+  rowsPerPageOptions={[10, 25, 100]}
+  component="div"
+  count={data.length}
+  rowsPerPage={rowsPerPage}
+  page={page}
+  onPageChange={handleChangePage}
+  onRowsPerPageChange={handleChangeRowsPerPage}
+  ActionsComponent={TablePaginationActionsRtl}
+  labelRowsPerPage="عدد الصفوف لكل صفحة"
+/>

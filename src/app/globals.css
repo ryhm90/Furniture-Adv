@@ -1,0 +1,82 @@
+@import 'tailwindcss/base';
+@import 'tailwindcss/components';
+@import 'tailwindcss/utilities';
+
+@font-face {
+  font-family: 'Alexandria';
+  src: url('/fonts/Alexandria-Medium.ttf') format('truetype');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --font-alexandria: 'Alexandria', sans-serif;
+  --font-cairo: var(--font-cairo-variable); /* Assuming Cairo is still used elsewhere or as a fallback */
+}
+
+html,
+body,
+#__next {
+  min-height: 100%;
+  background-color: #f3f7f7;
+}
+
+body {
+  background-color: #f3f7f7;
+  font-family: var(--font-alexandria), sans-serif; /* Changed to use Alexandria */
+  font-weight: 300;
+}
+
+/* Adjust for specific elements where you might want to use Cairo or another font */
+.Cairo {
+  font-family: var(--font-cairo), sans-serif;
+  font-weight: 300;
+}
+
+/* Alexandria class for elements where you want to explicitly use Alexandria font */
+.Alexandria {
+  font-family: var(--font-alexandria);
+  font-weight: 300;
+}
+
+.interactive-image {
+  cursor: pointer;
+  transition: filter 0.3s, transform 0.3s;
+  margin-bottom: 2px; /* Space between top and bottom images */
+}
+
+.interactive-image:hover {
+  filter: brightness(1);
+}
+
+.interactive-image:active {
+  filter: brightness(1.3);
+  transform: scale(1.1); /* Adds a scale effect when pressed */
+}
+
+.image-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 5px; /* Adjust spacing between image pairs */
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-container, .print-container * {
+    visibility: visible;
+  }
+  .print-container {
+    position: absolute;
+    left: 0;
+    top: 0;
+  }
+}
+
+.container {
+  font-family: var(--font-alexandria), sans-serif; /* Changed to use Alexandria */
+  font-weight: 300; /* If needed */
+}

@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      AUTH_SECRET: ci-auth-secret
+      NEXTAUTH_SECRET: ci-nextauth-secret
+      DATABASE_URL: mysql://ci:ci@127.0.0.1:3306/furniture_ci
+      MYSQL_HOST: 127.0.0.1
+      MYSQL_PORT: 3306
+      MYSQL_DATABASE: furniture_ci
+      MYSQL_USER: ci
+      MYSQL_PASSWORD: ci
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build

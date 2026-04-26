@@ -1,0 +1,19 @@
+<TableCell className="Alexandria" align="center" sx={{backgroundColor: '#2c2c4d', color: 'white' }}>
+<TableCell className="Alexandria" align="center">
+
+
+import { format } from "date-fns";
+
+
+  const dateformatter = (dateString) => {
+    const parsedDate = new Date(dateString);
+    return format(parsedDate, 'dd-MM-yyyy h:mm a');
+  };
+
+
+
+
+{new Intl.NumberFormat('en-US', { style: 'currency', currency: 'IQD' })
+    .format(Math.abs(row.balance)) // Remove the negative sign from the number
+    .replace('IQD', `IQD${row.balance < 0 ? ' -' : ''}`) // Add minus after the number
+}
