@@ -22,7 +22,12 @@ const LayoutDrawerContent = dynamic(() => import("./LayoutDrawerContent"), {
 
 const drawerWidth = 292;
 
-function AppShell({ children, A, sx, primaryTypographyProps }) {
+function AppShell({
+  children,
+  A,
+  sx = undefined,
+  primaryTypographyProps = undefined,
+}) {
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const [pageTitle, setPageTitle] = React.useState(A);
   const [openfinancial, setOpenfinancial] = React.useState(false);
