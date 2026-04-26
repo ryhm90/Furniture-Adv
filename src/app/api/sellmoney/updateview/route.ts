@@ -31,6 +31,7 @@ interface RequestedItemInput {
 
 interface SellMoneyUpdateRequest {
   ID: string;
+  mode?: string;
   ClName?: string;
   Provin?: string;
   Provin2?: string;
@@ -136,6 +137,8 @@ interface ItemChange {
   after?: number;
 }
 
+type UpdateMode = "full" | "info" | "price" | "items";
+
 function parseNumberValue(value: unknown) {
   if (typeof value === "number") {
     return value;
@@ -155,6 +158,20 @@ function parseNumberValue(value: unknown) {
 
 function normalizeText(value: unknown) {
   return typeof value === "string" ? value.trim() : "";
+}
+
+function normalizeUpdateMode(value: unknown): UpdateMode {
+  const mode = normalizeText(value).toLowerCase();
+
+  if (!mode || mode === "full") {
+    return "full";
+  }
+
+  if (mode === "info" || mode === "price" || mode === "items") {
+    return mode;
+  }
+
+  throw new RequestValidationError("نوع التعديل غير صالح.");
 }
 
 function formatDateValue(value: string | Date | null | undefined) {
@@ -460,21 +477,10 @@ export async function POST(req: NextRequest) {
     const dbName = getDbNameFromSession(session);
     const requestBody: SellMoneyUpdateRequest = await req.json();
     const invoiceNumber = normalizeText(requestBody.ID);
+    const updateMode = normalizeUpdateMode(requestBody.mode);
 
     if (!invoiceNumber) {
       return NextResponse.json({ message: "رقم الوصل مطلوب." }, { status: 400 });
-    }
-
-    const requestedItems = normalizeRequestedItems(requestBody.items);
-    const invoiceTotal = parseNumberValue(requestBody.Sum);
-    const floorCost = parseNumberValue(requestBody.FloorCost ?? 0);
-
-    if (!Number.isFinite(invoiceTotal) || invoiceTotal < 0) {
-      return NextResponse.json({ message: "المبلغ الكلي غير صالح." }, { status: 400 });
-    }
-
-    if (!Number.isFinite(floorCost) || floorCost < 0) {
-      return NextResponse.json({ message: "تكلفة التفريغ غير صالحة." }, { status: 400 });
     }
 
     const actorName = session.user.name?.trim() || session.user.email || "System";
@@ -536,14 +542,10 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      const includesInfo = updateMode === "full" || updateMode === "info";
+      const includesPrice = updateMode === "full" || updateMode === "price";
+      const includesItems = updateMode === "full" || updateMode === "items";
       const currentMoneyPaid = Number(currentInvoice.MoneyPaid ?? 0);
-      if (invoiceTotal < currentMoneyPaid) {
-        await db.rollback();
-        return NextResponse.json(
-          { message: "المبلغ الكلي لا يمكن أن يكون أقل من المبلغ المدفوع." },
-          { status: 400 },
-        );
-      }
 
       const [currentSaleRows] = await db.query<SaleItemRow[]>(
         `
@@ -564,100 +566,133 @@ export async function POST(req: NextRequest) {
       );
 
       const currentItems = aggregateSaleRows(currentSaleRows);
+      let requestedItems: RequestedItem[] = [];
       const plannedRows: PlannedInsertRow[] = [];
       const inventoryMap = new Map<number, InventoryRow>();
 
-      for (const requestedItem of requestedItems) {
-        const [inventoryRows] = await db.query<InventoryRow[]>(
-          `
-            SELECT
-              id,
-              RoomName,
-              RoomCounts,
-              RoomCost,
-              flagf,
-              ExternalPurchase,
-              FinancialAccount
-            FROM \`${dbName}\`.entrytable
-            WHERE id = ?
-            LIMIT 1
-            FOR UPDATE
-          `,
-          [requestedItem.roomnum],
-        );
+      if (includesItems) {
+        requestedItems = normalizeRequestedItems(requestBody.items);
 
-        const inventoryItem = inventoryRows[0];
-        if (!inventoryItem) {
-          await db.rollback();
-          return NextResponse.json(
-            { message: `المادة رقم ${requestedItem.roomnum} غير موجودة في المخزن.` },
-            { status: 404 },
+        for (const requestedItem of requestedItems) {
+          const [inventoryRows] = await db.query<InventoryRow[]>(
+            `
+              SELECT
+                id,
+                RoomName,
+                RoomCounts,
+                RoomCost,
+                flagf,
+                ExternalPurchase,
+                FinancialAccount
+              FROM \`${dbName}\`.entrytable
+              WHERE id = ?
+              LIMIT 1
+              FOR UPDATE
+            `,
+            [requestedItem.roomnum],
           );
-        }
 
-        inventoryMap.set(requestedItem.roomnum, inventoryItem);
+          const inventoryItem = inventoryRows[0];
+          if (!inventoryItem) {
+            await db.rollback();
+            return NextResponse.json(
+              { message: `المادة رقم ${requestedItem.roomnum} غير موجودة في المخزن.` },
+              { status: 404 },
+            );
+          }
 
-        const previousItem = currentItems.get(requestedItem.roomnum);
-        const availableAfterReverting =
-          Number(inventoryItem.RoomCounts ?? 0) + Number(previousItem?.countt ?? 0);
+          inventoryMap.set(requestedItem.roomnum, inventoryItem);
+          const previousItem = currentItems.get(requestedItem.roomnum);
 
-        if (requestedItem.countt > availableAfterReverting) {
-          await db.rollback();
-          return NextResponse.json(
-            {
-              message: `الكمية المطلوبة من المادة "${inventoryItem.RoomName}" أكبر من المتاح بعد احتساب الوصل الحالي.`,
-            },
-            { status: 400 },
-          );
-        }
+          const retainedQuantity = previousItem
+            ? Math.min(previousItem.countt, requestedItem.countt)
+            : 0;
+          const additionalQuantity = requestedItem.countt - retainedQuantity;
 
-        const retainedQuantity = previousItem
-          ? Math.min(previousItem.countt, requestedItem.countt)
-          : 0;
-        const additionalQuantity = requestedItem.countt - retainedQuantity;
+          if (retainedQuantity > 0 && previousItem) {
+            plannedRows.push({
+              roomnum: requestedItem.roomnum,
+              roomName: previousItem.roomName,
+              countt: retainedQuantity,
+              lineRoomCost: Number((previousItem.unitRoomCost * retainedQuantity).toFixed(2)),
+              externalPurchaseFlag: previousItem.externalPurchaseFlag,
+              financialAccount: previousItem.financialAccount,
+            });
+          }
 
-        if (retainedQuantity > 0 && previousItem) {
-          plannedRows.push({
-            roomnum: requestedItem.roomnum,
-            roomName: previousItem.roomName,
-            countt: retainedQuantity,
-            lineRoomCost: Number((previousItem.unitRoomCost * retainedQuantity).toFixed(2)),
-            externalPurchaseFlag: previousItem.externalPurchaseFlag,
-            financialAccount: previousItem.financialAccount,
-          });
-        }
-
-        if (additionalQuantity > 0) {
-          plannedRows.push({
-            roomnum: requestedItem.roomnum,
-            roomName: inventoryItem.RoomName,
-            countt: additionalQuantity,
-            lineRoomCost: Number(
-              (Number(inventoryItem.RoomCost ?? 0) * additionalQuantity).toFixed(2),
-            ),
-            externalPurchaseFlag: isExternalPurchaseEnabled(inventoryItem.ExternalPurchase)
-              ? "Y"
-              : "N",
-            financialAccount: normalizeFinancialAccountName(inventoryItem.FinancialAccount),
-          });
+          if (additionalQuantity > 0) {
+            plannedRows.push({
+              roomnum: requestedItem.roomnum,
+              roomName: inventoryItem.RoomName,
+              countt: additionalQuantity,
+              lineRoomCost: Number(
+                (Number(inventoryItem.RoomCost ?? 0) * additionalQuantity).toFixed(2),
+              ),
+              externalPurchaseFlag: isExternalPurchaseEnabled(inventoryItem.ExternalPurchase)
+                ? "Y"
+                : "N",
+              financialAccount: normalizeFinancialAccountName(inventoryItem.FinancialAccount),
+            });
+          }
         }
       }
 
-      const nextItems = aggregatePlannedRows(plannedRows);
+      const floorCost = parseNumberValue(
+        includesInfo ? requestBody.FloorCost ?? currentInvoice.FloorCost ?? 0 : currentInvoice.FloorCost ?? 0,
+      );
+
+      if (!Number.isFinite(floorCost) || floorCost < 0) {
+        await db.rollback();
+        return NextResponse.json({ message: "تكلفة التفريغ غير صالحة." }, { status: 400 });
+      }
+
+      const invoiceTotal = parseNumberValue(
+        includesPrice ? requestBody.Sum ?? currentInvoice.Sum ?? 0 : currentInvoice.Sum ?? 0,
+      );
+
+      if (!Number.isFinite(invoiceTotal) || invoiceTotal < 0) {
+        await db.rollback();
+        return NextResponse.json({ message: "المبلغ الكلي غير صالح." }, { status: 400 });
+      }
+
+      if (includesPrice && invoiceTotal < currentMoneyPaid) {
+        await db.rollback();
+        return NextResponse.json(
+          { message: "المبلغ الكلي لا يمكن أن يكون أقل من المبلغ المدفوع." },
+          { status: 400 },
+        );
+      }
+
+      const nextItems = includesItems ? aggregatePlannedRows(plannedRows) : currentItems;
       const nextInvoice = {
-        ClName: normalizeText(requestBody.ClName || currentInvoice.ClName),
-        CellPhone: normalizeText(requestBody.Cellphone ?? currentInvoice.CellPhone),
-        CellPhone1: normalizeText(requestBody.Cellphone1 ?? currentInvoice.CellPhone1 ?? ""),
-        Provin: normalizeText(requestBody.Provin ?? currentInvoice.Provin),
-        Provin2: normalizeText(requestBody.Provin2 ?? currentInvoice.Provin2),
+        ClName: normalizeText(
+          includesInfo ? requestBody.ClName || currentInvoice.ClName : currentInvoice.ClName,
+        ),
+        CellPhone: normalizeText(
+          includesInfo ? requestBody.Cellphone ?? currentInvoice.CellPhone : currentInvoice.CellPhone,
+        ),
+        CellPhone1: normalizeText(
+          includesInfo
+            ? requestBody.Cellphone1 ?? currentInvoice.CellPhone1 ?? ""
+            : currentInvoice.CellPhone1 ?? "",
+        ),
+        Provin: normalizeText(
+          includesInfo ? requestBody.Provin ?? currentInvoice.Provin : currentInvoice.Provin,
+        ),
+        Provin2: normalizeText(
+          includesInfo ? requestBody.Provin2 ?? currentInvoice.Provin2 : currentInvoice.Provin2,
+        ),
         Details:
-          typeof requestBody.Details === "string"
+          includesInfo && typeof requestBody.Details === "string"
             ? requestBody.Details.trim()
             : currentInvoice.Details ?? "",
-        Floor: normalizeText(requestBody.Floor ?? currentInvoice.Floor),
+        Floor: normalizeText(
+          includesInfo ? requestBody.Floor ?? currentInvoice.Floor : currentInvoice.Floor,
+        ),
         FloorCost: floorCost,
-        Provide:
-          formatDateValue(requestBody.selectedDate) || formatDateValue(currentInvoice.Provide),
+        Provide: includesInfo
+          ? formatDateValue(requestBody.selectedDate) || formatDateValue(currentInvoice.Provide)
+          : formatDateValue(currentInvoice.Provide),
         Sum: invoiceTotal,
       };
 
@@ -688,112 +723,117 @@ export async function POST(req: NextRequest) {
       ) {
         await db.rollback();
         return NextResponse.json(
-          { message: "لا توجد تغييرات فعلية ليتم حفظها." },
-          { status: 400 },
+          {
+            message: "لم يتم إجراء أي تغيير على الوصل.",
+            changed: false,
+          },
+          { status: 200 },
         );
       }
 
-      for (const item of currentItems.values()) {
-        await db.execute(
-          `UPDATE \`${dbName}\`.entrytable SET RoomCounts = RoomCounts + ? WHERE id = ?`,
-          [item.countt, item.roomnum],
-        );
-
-        if (BONUS_ELIGIBLE_FLAGS.includes(item.flagf) && currentInvoice.sellor) {
+      if (includesItems) {
+        for (const item of currentItems.values()) {
           await db.execute(
-            `UPDATE \`${dbName}\`.employees SET bonus = bonus - ? WHERE name = ?`,
-            [5000 * item.countt, currentInvoice.sellor],
+            `UPDATE \`${dbName}\`.entrytable SET RoomCounts = RoomCounts + ? WHERE id = ?`,
+            [item.countt, item.roomnum],
+          );
+
+          if (BONUS_ELIGIBLE_FLAGS.includes(item.flagf) && currentInvoice.sellor) {
+            await db.execute(
+              `UPDATE \`${dbName}\`.employees SET bonus = bonus - ? WHERE name = ?`,
+              [5000 * item.countt, currentInvoice.sellor],
+            );
+          }
+        }
+
+        await db.execute(`DELETE FROM \`${dbName}\`.selltable WHERE InvoNum = ?`, [invoiceNumber]);
+
+        for (const item of plannedRows) {
+          await db.execute(
+            `
+              INSERT INTO \`${dbName}\`.selltable (
+                RoomNum,
+                InvoNum,
+                State,
+                countt,
+                RoomCost,
+                ExternalPurchase,
+                FinancialAccount
+              )
+              VALUES (?, ?, '1', ?, ?, ?, ?)
+            `,
+            [
+              item.roomnum,
+              invoiceNumber,
+              item.countt,
+              item.lineRoomCost,
+              item.externalPurchaseFlag,
+              item.financialAccount,
+            ],
           );
         }
-      }
 
-      await db.execute(`DELETE FROM \`${dbName}\`.selltable WHERE InvoNum = ?`, [invoiceNumber]);
+        for (const requestedItem of requestedItems) {
+          const inventoryItem = inventoryMap.get(requestedItem.roomnum);
 
-      for (const item of plannedRows) {
-        await db.execute(
-          `
-            INSERT INTO \`${dbName}\`.selltable (
-              RoomNum,
-              InvoNum,
-              State,
-              countt,
-              RoomCost,
-              ExternalPurchase,
-              FinancialAccount
-            )
-            VALUES (?, ?, '1', ?, ?, ?, ?)
-          `,
-          [
-            item.roomnum,
-            invoiceNumber,
-            item.countt,
-            item.lineRoomCost,
-            item.externalPurchaseFlag,
-            item.financialAccount,
-          ],
-        );
-      }
+          if (!inventoryItem) {
+            continue;
+          }
 
-      for (const requestedItem of requestedItems) {
-        const inventoryItem = inventoryMap.get(requestedItem.roomnum);
+          await db.execute(
+            `UPDATE \`${dbName}\`.entrytable SET RoomCounts = RoomCounts - ? WHERE id = ?`,
+            [requestedItem.countt, requestedItem.roomnum],
+          );
 
-        if (!inventoryItem) {
-          continue;
+          if (BONUS_ELIGIBLE_FLAGS.includes(inventoryItem.flagf) && currentInvoice.sellor) {
+            await db.execute(
+              `UPDATE \`${dbName}\`.employees SET bonus = bonus + ? WHERE name = ?`,
+              [5000 * requestedItem.countt, currentInvoice.sellor],
+            );
+          }
         }
 
-        await db.execute(
-          `UPDATE \`${dbName}\`.entrytable SET RoomCounts = RoomCounts - ? WHERE id = ?`,
-          [requestedItem.countt, requestedItem.roomnum],
-        );
+        const oldExternalCosts = buildExternalCostMap(currentItems);
+        const newExternalCosts = buildExternalCostMap(nextItems);
+        const deltaKeys = new Set([...oldExternalCosts.keys(), ...newExternalCosts.keys()]);
 
-        if (BONUS_ELIGIBLE_FLAGS.includes(inventoryItem.flagf) && currentInvoice.sellor) {
+        for (const deltaKey of deltaKeys) {
+          const previousValue = oldExternalCosts.get(deltaKey);
+          const nextValue = newExternalCosts.get(deltaKey);
+          const deltaAmount =
+            Number(nextValue?.totalCost ?? 0) - Number(previousValue?.totalCost ?? 0);
+
+          if (!Number.isFinite(deltaAmount) || deltaAmount === 0) {
+            continue;
+          }
+
+          const targetRoomName = nextValue?.roomName ?? previousValue?.roomName ?? "مادة";
+          const targetAccount = nextValue?.account ?? previousValue?.account;
+
+          if (!targetAccount) {
+            continue;
+          }
+
           await db.execute(
-            `UPDATE \`${dbName}\`.employees SET bonus = bonus + ? WHERE name = ?`,
-            [5000 * requestedItem.countt, currentInvoice.sellor],
+            `
+              INSERT INTO \`${dbName}\`.dept (
+                Name,
+                Amount,
+                state,
+                details
+              )
+              VALUES (?, ?, ?, ?)
+            `,
+            [
+              targetAccount,
+              deltaAmount,
+              deltaAmount > 0 ? "In" : "Out",
+              deltaAmount > 0
+                ? `زيادة تكلفة بيع المادة ${targetRoomName} في الوصل ${invoiceNumber} بعد التعديل`
+                : `تقليل تكلفة بيع المادة ${targetRoomName} في الوصل ${invoiceNumber} بعد التعديل`,
+            ],
           );
         }
-      }
-
-      const oldExternalCosts = buildExternalCostMap(currentItems);
-      const newExternalCosts = buildExternalCostMap(nextItems);
-      const deltaKeys = new Set([...oldExternalCosts.keys(), ...newExternalCosts.keys()]);
-
-      for (const deltaKey of deltaKeys) {
-        const previousValue = oldExternalCosts.get(deltaKey);
-        const nextValue = newExternalCosts.get(deltaKey);
-        const deltaAmount =
-          Number(nextValue?.totalCost ?? 0) - Number(previousValue?.totalCost ?? 0);
-
-        if (!Number.isFinite(deltaAmount) || deltaAmount === 0) {
-          continue;
-        }
-
-        const targetRoomName = nextValue?.roomName ?? previousValue?.roomName ?? "مادة";
-        const targetAccount = nextValue?.account ?? previousValue?.account;
-
-        if (!targetAccount) {
-          continue;
-        }
-
-        await db.execute(
-          `
-            INSERT INTO \`${dbName}\`.dept (
-              Name,
-              Amount,
-              state,
-              details
-            )
-            VALUES (?, ?, ?, ?)
-          `,
-          [
-            targetAccount,
-            deltaAmount,
-            deltaAmount > 0 ? "In" : "Out",
-            deltaAmount > 0
-              ? `زيادة تكلفة بيع المادة ${targetRoomName} في الوصل ${invoiceNumber} بعد التعديل`
-              : `تقليل تكلفة بيع المادة ${targetRoomName} في الوصل ${invoiceNumber} بعد التعديل`,
-          ],
-        );
       }
 
       const nextMoneyRemain = invoiceTotal - currentMoneyPaid;
@@ -870,6 +910,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           message: "تم تحديث الوصل وتسجيل التعديل بنجاح.",
+          changed: true,
           summary: modificationSummary,
         },
         { status: 200 },

@@ -171,7 +171,13 @@ function Delivery() {
       const response = await fetch(
         `/api/search/selldelivery?query=${encodeURIComponent(searchQuery.trim())}&date=${encodeURIComponent(isQuerySearch ? "" : selectedDate || "")}`,
       );
-      const result = await response.json();
+      const result = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(result?.message || result?.error || "تعذر جلب بيانات تقرير التجهيز.");
+      }
+      if (!Array.isArray(result)) {
+        throw new Error("بيانات تقرير التجهيز غير صالحة.");
+      }
       setData(result);
       setPage(0);
     } catch (error) {
@@ -302,7 +308,7 @@ function Delivery() {
       toast.success("تم تنزيل تقرير التجهيز بنجاح.");
     } catch (error) {
       console.error("Error generating delivery report:", error);
-      toast.error("تعذر تنزيل تقرير التجهيز.");
+      toast.error(error?.message || "تعذر تنزيل تقرير التجهيز.");
     } finally {
       setLoading(false);
     }

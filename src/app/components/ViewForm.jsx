@@ -220,11 +220,33 @@ function normalizeInvoiceItems(rows = []) {
   );
 }
 
+function buildItemsComparisonSignature(rows = []) {
+  return rows
+    .map((row) => ({
+      roomnum: Number(row.roomnum),
+      countt: Number(row.countt ?? 0),
+    }))
+    .sort((firstItem, secondItem) => firstItem.roomnum - secondItem.roomnum)
+    .map((item) => `${item.roomnum}:${item.countt}`)
+    .join("|");
+}
+
+function buildItemQuantityMap(rows = []) {
+  const itemMap = new Map();
+
+  rows.forEach((row) => {
+    itemMap.set(Number(row.roomnum), Number(row.countt ?? 0));
+  });
+
+  return itemMap;
+}
+
 function ViewForm({ open, onClose, inv }) {
   const { data: session } = useSession();
   const [formState, setFormState] = useState(emptyFormState);
   const [invoiceData, setInvoiceData] = useState(null);
   const [items, setItems] = useState([]);
+  const [originalItems, setOriginalItems] = useState([]);
   const [historyRows, setHistoryRows] = useState([]);
   const [loading, setLoading] = useState(false);
   const [roomQuery, setRoomQuery] = useState("");
@@ -233,6 +255,7 @@ function ViewForm({ open, onClose, inv }) {
   const [modificationNote, setModificationNote] = useState("");
   const [confirmationNote, setConfirmationNote] = useState("");
   const [confirming, setConfirming] = useState(false);
+  const [activeSaveMode, setActiveSaveMode] = useState(null);
   const [isSubmitting, runWithSubmission] = useSubmissionState();
 
   const isManager = session?.user?.role === "Manager";
@@ -259,15 +282,48 @@ function ViewForm({ open, onClose, inv }) {
     return total - paid;
   }, [formState.MoneyPaid, formState.Sum]);
 
-  const currentItemQuantities = useMemo(() => {
-    const itemMap = new Map();
+  const infoHasChanges = useMemo(() => {
+    if (!invoiceData) {
+      return false;
+    }
 
-    items.forEach((item) => {
-      itemMap.set(item.roomnum, Number(item.countt ?? 0));
-    });
+    return (
+      formState.ClName.trim() !== (invoiceData.ClName ?? "").trim() ||
+      formState.Provin.trim() !== (invoiceData.Provin ?? "").trim() ||
+      formState.Provin2.trim() !== (invoiceData.Provin2 ?? "").trim() ||
+      formState.Cellphone.trim() !== (invoiceData.CellPhone ?? "").trim() ||
+      formState.Cellphone1.trim() !== (invoiceData.CellPhone1 ?? "").trim() ||
+      formState.Details.trim() !== ((invoiceData.Details ?? invoiceData.details ?? "").trim()) ||
+      formState.Floor.trim() !== (invoiceData.Floor ?? "").trim() ||
+      Number(parseNumberValue(formState.FloorCost) || 0) !== Number(invoiceData.FloorCost ?? 0) ||
+      formatDateValue(formState.selectedDate) !== formatDateValue(invoiceData.Provide)
+    );
+  }, [formState, invoiceData]);
 
-    return itemMap;
-  }, [items]);
+  const priceHasChanges = useMemo(() => {
+    if (!invoiceData) {
+      return false;
+    }
+
+    return Number(parseNumberValue(formState.Sum) || 0) !== Number(invoiceData.Sum ?? 0);
+  }, [formState.Sum, invoiceData]);
+
+  const itemsHasChanges = useMemo(() => {
+    return buildItemsComparisonSignature(items) !== buildItemsComparisonSignature(originalItems);
+  }, [items, originalItems]);
+
+  const currentItemQuantities = useMemo(() => buildItemQuantityMap(items), [items]);
+  const originalItemQuantities = useMemo(() => buildItemQuantityMap(originalItems), [originalItems]);
+
+  const getProjectedStockCount = useCallback(
+    (roomnum, currentStockCount) => {
+      const baseStock = Number(currentStockCount ?? 0);
+      const originalQuantity = originalItemQuantities.get(Number(roomnum)) ?? 0;
+      const editedQuantity = currentItemQuantities.get(Number(roomnum)) ?? 0;
+      return baseStock + originalQuantity - editedQuantity;
+    },
+    [currentItemQuantities, originalItemQuantities],
+  );
 
   const loadInvoiceData = useCallback(async (invoiceToLoad) => {
     if (!invoiceToLoad) {
@@ -307,6 +363,7 @@ function ViewForm({ open, onClose, inv }) {
         MoneyRemain: Number(nextInvoiceData.MoneyRemain ?? 0),
       });
       setItems(nextItems);
+      setOriginalItems(nextItems);
       setHistoryRows(Array.isArray(nextInvoiceData.modificationHistory) ? nextInvoiceData.modificationHistory : []);
     } catch (error) {
       console.error("Error loading invoice details:", error);
@@ -351,11 +408,12 @@ function ViewForm({ open, onClose, inv }) {
         const nextResults = Array.isArray(response.data) ? response.data : [];
         setRoomResults(
           nextResults.map((item) => {
-            const existingQuantity = currentItemQuantities.get(Number(item.id)) ?? 0;
+            const currentStockCount = Number(item.RoomCounts ?? 0);
             return {
               roomnum: Number(item.id),
               roomName: item.RoomName,
-              availableCount: Number(item.RoomCounts ?? 0) + existingQuantity,
+              currentStockCount,
+              availableCount: getProjectedStockCount(Number(item.id), currentStockCount),
               roomCost: Number(item.RoomCost ?? 0),
             };
           }),
@@ -369,12 +427,13 @@ function ViewForm({ open, onClose, inv }) {
     }, 300);
 
     return () => window.clearTimeout(timeoutId);
-  }, [canEdit, currentItemQuantities, open, roomQuery]);
+  }, [canEdit, getProjectedStockCount, open, roomQuery]);
 
   const handleClose = () => {
     setFormState(emptyFormState);
     setInvoiceData(null);
     setItems([]);
+    setOriginalItems([]);
     setHistoryRows([]);
     setRoomQuery("");
     setRoomResults([]);
@@ -408,7 +467,7 @@ function ViewForm({ open, onClose, inv }) {
             return item;
           }
 
-          const nextQuantity = Math.min(item.availableCount, Number(item.countt) + 1);
+          const nextQuantity = Number(item.countt) + 1;
           return {
             ...item,
             countt: nextQuantity,
@@ -424,7 +483,7 @@ function ViewForm({ open, onClose, inv }) {
           roomName: room.roomName,
           countt: 1,
           availableCount: room.availableCount,
-          currentStockCount: room.availableCount,
+          currentStockCount: room.currentStockCount ?? room.availableCount,
           lineRoomCost: Number(room.roomCost ?? 0),
           unitRoomCost: Number(room.roomCost ?? 0),
           flagf: "",
@@ -449,7 +508,7 @@ function ViewForm({ open, onClose, inv }) {
           return item;
         }
 
-        const boundedQuantity = Math.max(1, Math.min(item.availableCount, parsedValue));
+        const boundedQuantity = Math.max(1, parsedValue);
         return {
           ...item,
           countt: boundedQuantity,
@@ -463,13 +522,104 @@ function ViewForm({ open, onClose, inv }) {
     setItems((currentValue) => currentValue.filter((item) => item.roomnum !== roomnum));
   };
 
-  const handleSaveChanges = async () => {
+  const submitInvoiceUpdate = async ({ mode, payload, successMessage, unchangedMessage }) => {
+    if (!canEdit || !invoiceNumber) {
+      return false;
+    }
+
+    let saveResponse = null;
+    setActiveSaveMode(mode);
+
+    try {
+      const saveSucceeded = await runWithSubmission(async () => {
+        saveResponse = await axios.post("/api/sellmoney/updateview", {
+          ID: invoiceNumber,
+          mode,
+          note: modificationNote,
+          ...payload,
+        });
+      });
+
+      if (!saveSucceeded) {
+        return false;
+      }
+    } catch (error) {
+      console.error("Error saving invoice modifications:", error);
+      const errorMessage = axios.isAxiosError(error)
+        ? error.response?.data?.message || error.message
+        : "تعذر حفظ تعديل الوصل.";
+      toast.error(errorMessage);
+      return false;
+    } finally {
+      setActiveSaveMode(null);
+    }
+
+    if (!saveResponse) {
+      return false;
+    }
+
+    const responseMessage =
+      saveResponse.data?.message ||
+      (saveResponse.data?.changed === false
+        ? unchangedMessage || "لم يتم إجراء أي تغيير على الوصل."
+        : successMessage || "تم حفظ تعديل الوصل بنجاح.");
+
+    if (saveResponse.data?.changed === false) {
+      toast.info(responseMessage);
+      return false;
+    }
+
+    toast.success(responseMessage);
+    setModificationNote("");
+    setRoomQuery("");
+    setRoomResults([]);
+    await loadInvoiceData(invoiceNumber);
+    return true;
+  };
+
+  const handleSaveInfoChanges = async () => {
     if (!canEdit || !invoiceNumber) {
       return;
     }
 
-    if (items.length === 0) {
-      toast.error("يجب أن يحتوي الوصل على مادة واحدة على الأقل.");
+    const floorCostValue = parseNumberValue(formState.FloorCost ?? 0);
+    if (!Number.isFinite(floorCostValue) || floorCostValue < 0) {
+      toast.error("تكلفة التفريغ غير صالحة.");
+      return;
+    }
+
+    if (
+      !formState.ClName.trim() ||
+      !formState.Cellphone.trim() ||
+      !formState.Provin.trim() ||
+      !formState.Provin2.trim() ||
+      !formState.Floor.trim() ||
+      !formState.selectedDate
+    ) {
+      toast.error("الحقول الأساسية لبيانات الوصل مطلوبة قبل الحفظ.");
+      return;
+    }
+
+    await submitInvoiceUpdate({
+      mode: "info",
+      payload: {
+        ClName: formState.ClName,
+        Provin: formState.Provin,
+        Provin2: formState.Provin2,
+        Cellphone: formState.Cellphone,
+        Cellphone1: formState.Cellphone1,
+        Details: formState.Details,
+        Floor: formState.Floor,
+        FloorCost: formState.FloorCost,
+        selectedDate: formState.selectedDate,
+      },
+      successMessage: "تم حفظ معلومات الوصل بنجاح.",
+      unchangedMessage: "لم يتم إجراء أي تغيير على معلومات الوصل.",
+    });
+  };
+
+  const handleSavePriceChanges = async () => {
+    if (!canEdit || !invoiceNumber) {
       return;
     }
 
@@ -486,36 +636,37 @@ function ViewForm({ open, onClose, inv }) {
       return;
     }
 
-    const saveSucceeded = await runWithSubmission(async () => {
-      await axios.post("/api/sellmoney/updateview", {
-        ID: invoiceNumber,
-        ClName: formState.ClName,
-        Provin: formState.Provin,
-        Provin2: formState.Provin2,
-        Cellphone: formState.Cellphone,
-        Cellphone1: formState.Cellphone1,
-        Details: formState.Details,
-        Floor: formState.Floor,
-        FloorCost: formState.FloorCost,
-        selectedDate: formState.selectedDate,
+    await submitInvoiceUpdate({
+      mode: "price",
+      payload: {
         Sum: formState.Sum,
-        note: modificationNote,
+      },
+      successMessage: "تم حفظ تعديل المبلغ بنجاح.",
+      unchangedMessage: "لم يتم إجراء أي تغيير على المبلغ الكلي.",
+    });
+  };
+
+  const handleSaveItemChanges = async () => {
+    if (!canEdit || !invoiceNumber) {
+      return;
+    }
+
+    if (items.length === 0) {
+      toast.error("يجب أن يحتوي الوصل على مادة واحدة على الأقل.");
+      return;
+    }
+
+    await submitInvoiceUpdate({
+      mode: "items",
+      payload: {
         items: items.map((item) => ({
           roomnum: item.roomnum,
           countt: item.countt,
         })),
-      });
+      },
+      successMessage: "تم حفظ تعديل مواد الوصل بنجاح.",
+      unchangedMessage: "لم يتم إجراء أي تغيير على مواد الوصل.",
     });
-
-    if (!saveSucceeded) {
-      return;
-    }
-
-    toast.success("تم حفظ تعديل الوصل بنجاح.");
-    setModificationNote("");
-    setRoomQuery("");
-    setRoomResults([]);
-    await loadInvoiceData(invoiceNumber);
   };
 
   const handleConfirmModification = async () => {
@@ -784,6 +935,35 @@ function ViewForm({ open, onClose, inv }) {
                             disabled={!canEdit}
                           />
                         </Grid>
+                        <Grid item xs={12}>
+                          <Stack
+                            direction={{ xs: "column", sm: "row" }}
+                            spacing={1.5}
+                            justifyContent="space-between"
+                            alignItems={{ xs: "stretch", sm: "center" }}
+                          >
+                            <Typography sx={{ fontFamily: FONT_FAMILY, fontSize: "12px", color: "text.secondary" }}>
+                              يحفظ هذا الزر بيانات الزبون والتجهيز فقط دون تعديل المواد أو المبلغ.
+                            </Typography>
+                            <Button
+                              variant="contained"
+                              startIcon={<SaveOutlinedIcon />}
+                              onClick={handleSaveInfoChanges}
+                              disabled={!canEdit || !infoHasChanges || isSubmitting || loading}
+                              sx={{
+                                borderRadius: 2.5,
+                                fontFamily: FONT_FAMILY,
+                                fontWeight: 700,
+                                backgroundColor: "#386e6e",
+                                "&:hover": { backgroundColor: "#2e5a5a" },
+                              }}
+                            >
+                              {isSubmitting && activeSaveMode === "info"
+                                ? "جارٍ حفظ المعلومات..."
+                                : "حفظ معلومات الوصل"}
+                            </Button>
+                          </Stack>
+                        </Grid>
                       </Grid>
                     </CardContent>
                   </Card>
@@ -827,7 +1007,7 @@ function ViewForm({ open, onClose, inv }) {
                           <TableHead>
                             <TableRow>
                               <TableCell sx={tableHeadCellSx}>المادة</TableCell>
-                              <TableCell sx={tableHeadCellSx}>المتاح بعد الإرجاع</TableCell>
+                              <TableCell sx={tableHeadCellSx}>الرصيد بعد الحفظ</TableCell>
                               <TableCell sx={tableHeadCellSx}>عدد الوصل</TableCell>
                               <TableCell sx={tableHeadCellSx}>كلفة المفرد</TableCell>
                               <TableCell sx={tableHeadCellSx}>الكلفة الإجمالية</TableCell>
@@ -838,7 +1018,9 @@ function ViewForm({ open, onClose, inv }) {
                             {items.map((item) => (
                               <TableRow key={item.roomnum}>
                                 <TableCell sx={tableCellSx}>{item.roomName}</TableCell>
-                                <TableCell sx={tableCellSx}>{formatMoney(item.availableCount)}</TableCell>
+                                <TableCell sx={tableCellSx}>
+                                  {formatMoney(getProjectedStockCount(item.roomnum, item.currentStockCount))}
+                                </TableCell>
                                 <TableCell sx={tableCellSx}>
                                   <TextField
                                     type="number"
@@ -848,7 +1030,6 @@ function ViewForm({ open, onClose, inv }) {
                                     disabled={!canEdit}
                                     inputProps={{
                                       min: 1,
-                                      max: item.availableCount,
                                       style: { textAlign: "center", fontFamily: FONT_FAMILY },
                                     }}
                                     sx={{ width: 120, ...fieldSx }}
@@ -879,6 +1060,35 @@ function ViewForm({ open, onClose, inv }) {
                           </TableBody>
                         </Table>
                       </TableContainer>
+
+                      <Stack
+                        direction={{ xs: "column", sm: "row" }}
+                        spacing={1.5}
+                        justifyContent="space-between"
+                        alignItems={{ xs: "stretch", sm: "center" }}
+                        sx={{ mt: 2 }}
+                      >
+                        <Typography sx={{ fontFamily: FONT_FAMILY, fontSize: "12px", color: "text.secondary" }}>
+                          يحفظ هذا الزر إضافة المواد أو حذفها أو تعديل عددها فقط.
+                        </Typography>
+                        <Button
+                          variant="contained"
+                          startIcon={<SaveOutlinedIcon />}
+                          onClick={handleSaveItemChanges}
+                          disabled={!canEdit || !itemsHasChanges || isSubmitting || loading}
+                          sx={{
+                            borderRadius: 2.5,
+                            fontFamily: FONT_FAMILY,
+                            fontWeight: 700,
+                            backgroundColor: "#386e6e",
+                            "&:hover": { backgroundColor: "#2e5a5a" },
+                          }}
+                        >
+                          {isSubmitting && activeSaveMode === "items"
+                            ? "جارٍ حفظ المواد..."
+                            : "حفظ مواد الوصل"}
+                        </Button>
+                      </Stack>
                     </CardContent>
                   </Card>
 
@@ -926,13 +1136,42 @@ function ViewForm({ open, onClose, inv }) {
                             fullWidth
                             multiline
                             minRows={2}
-                            label="ملاحظة التعديل"
-                            placeholder="اكتب سبب التعديل أو ما الذي تغير داخل الوصل."
+                            label="ملاحظة التعديل المشتركة"
+                            placeholder="تطبق هذه الملاحظة على عملية الحفظ التالية، سواء كانت معلومات الوصل أو المبلغ أو المواد."
                             value={modificationNote}
                             onChange={(event) => setModificationNote(event.target.value)}
                             sx={fieldSx}
                             disabled={!canEdit}
                           />
+                        </Grid>
+                        <Grid item xs={12}>
+                          <Stack
+                            direction={{ xs: "column", sm: "row" }}
+                            spacing={1.5}
+                            justifyContent="space-between"
+                            alignItems={{ xs: "stretch", sm: "center" }}
+                          >
+                            <Typography sx={{ fontFamily: FONT_FAMILY, fontSize: "12px", color: "text.secondary" }}>
+                              يحفظ هذا الزر المبلغ الكلي فقط، ويعيد احتساب المتبقي تلقائياً.
+                            </Typography>
+                            <Button
+                              variant="contained"
+                              startIcon={<SaveOutlinedIcon />}
+                              onClick={handleSavePriceChanges}
+                              disabled={!canEdit || !priceHasChanges || isSubmitting || loading}
+                              sx={{
+                                borderRadius: 2.5,
+                                fontFamily: FONT_FAMILY,
+                                fontWeight: 700,
+                                backgroundColor: "#386e6e",
+                                "&:hover": { backgroundColor: "#2e5a5a" },
+                              }}
+                            >
+                              {isSubmitting && activeSaveMode === "price"
+                                ? "جارٍ حفظ المبلغ..."
+                                : "حفظ المبلغ الكلي"}
+                            </Button>
+                          </Stack>
                         </Grid>
                       </Grid>
                     </CardContent>
@@ -976,7 +1215,7 @@ function ViewForm({ open, onClose, inv }) {
                           <TableHead>
                             <TableRow>
                               <TableCell sx={tableHeadCellSx}>المادة</TableCell>
-                              <TableCell sx={tableHeadCellSx}>المتاح</TableCell>
+                              <TableCell sx={tableHeadCellSx}>الرصيد بعد الحفظ</TableCell>
                               <TableCell sx={tableHeadCellSx}>كلفة المفرد</TableCell>
                               <TableCell sx={tableHeadCellSx}>إضافة</TableCell>
                             </TableRow>
@@ -1001,7 +1240,7 @@ function ViewForm({ open, onClose, inv }) {
                                           color="primary"
                                           size="small"
                                           onClick={() => handleAddRoom(room)}
-                                          disabled={!canEdit || room.availableCount <= 0}
+                                          disabled={!canEdit}
                                         >
                                           <AddCircleOutlineIcon fontSize="small" />
                                         </IconButton>
@@ -1153,21 +1392,6 @@ function ViewForm({ open, onClose, inv }) {
           sx={{ fontFamily: FONT_FAMILY, fontWeight: 700 }}
         >
           إغلاق
-        </Button>
-        <Button
-          variant="contained"
-          startIcon={<SaveOutlinedIcon />}
-          onClick={handleSaveChanges}
-          disabled={!canEdit || isSubmitting || loading}
-          sx={{
-            borderRadius: 2.5,
-            fontFamily: FONT_FAMILY,
-            fontWeight: 700,
-            backgroundColor: "#386e6e",
-            "&:hover": { backgroundColor: "#2e5a5a" },
-          }}
-        >
-          {isSubmitting ? "جارٍ حفظ التعديل..." : "حفظ التعديل"}
         </Button>
       </DialogActions>
     </Dialog>

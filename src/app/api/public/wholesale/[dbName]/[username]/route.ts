@@ -28,6 +28,7 @@ interface StatementRow extends RowDataPacket {
 }
 
 const USERNAME_PATTERN = /^[A-Za-z0-9]{8,32}$/;
+const DB_NAME_PATTERN = /^[A-Za-z0-9_]+$/;
 const PUBLIC_LIMIT = 40;
 const PUBLIC_WINDOW_MS = 10 * 60 * 1000;
 
@@ -52,9 +53,15 @@ function applyCommonHeaders(response: NextResponse, remaining?: number, retryAft
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ username: string }> },
+  { params }: { params: Promise<{ dbName: string; username: string }> },
 ) {
-  const { username } = await params;
+  const { dbName, username } = await params;
+
+  if (!DB_NAME_PATTERN.test(dbName)) {
+    return applyCommonHeaders(
+      NextResponse.json({ error: "Invalid company database." }, { status: 400 }),
+    );
+  }
 
   if (!USERNAME_PATTERN.test(username)) {
     return applyCommonHeaders(
@@ -64,7 +71,7 @@ export async function GET(
 
   const rateLimitResult = consumePublicRateLimit(
     request,
-    `public-wholesale:${username}`,
+    `public-wholesale:${dbName}:${username}`,
     PUBLIC_LIMIT,
     PUBLIC_WINDOW_MS,
   );
@@ -80,14 +87,6 @@ export async function GET(
       ),
       rateLimitResult.remaining,
       rateLimitResult.retryAfterSeconds,
-    );
-  }
-
-  const dbName = process.env.MYSQL_DATABASE;
-  if (!dbName) {
-    return applyCommonHeaders(
-      NextResponse.json({ error: "Database is not configured." }, { status: 500 }),
-      rateLimitResult.remaining,
     );
   }
 
@@ -169,6 +168,7 @@ export async function GET(
           username: affiliate.username,
           TiD: affiliate.TiD,
           totalMPU: Number(affiliate.totalMPU ?? 0),
+          dbName,
         },
         items: statementRows.map((row) => ({
           Id: row.Id,

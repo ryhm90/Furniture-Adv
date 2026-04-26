@@ -24,6 +24,7 @@ import {
   Typography,
 } from "@mui/material";
 import axios from "axios";
+import { useSession } from "next-auth/react";
 import { toast } from "react-toastify";
 
 import AppShell from "../components/AppShell";
@@ -145,6 +146,7 @@ function SummaryCard({ title, value, helper, icon, color }) {
 const getTodayDate = () => new Date().toLocaleDateString("en-CA");
 
 function Wholesale() {
+  const { data: session } = useSession();
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [data, setData] = useState([]);
@@ -254,8 +256,18 @@ function Wholesale() {
     setFormOpen(true);
   };
 
-  const buildPublicWholesaleLink = (username) =>
-    new URL(`/ws/${encodeURIComponent(username)}`, window.location.origin).toString();
+  const buildPublicWholesaleLink = (username) => {
+    const dbName = session?.user?.database?.trim();
+
+    if (!dbName) {
+      throw new Error("تعذر تحديد قاعدة بيانات الشركة الحالية.");
+    }
+
+    return new URL(
+      `/ws/company/${encodeURIComponent(dbName)}/${encodeURIComponent(username)}`,
+      window.location.origin,
+    ).toString();
+  };
 
   const handleCopyPublicLink = async (record) => {
     if (!record?.username) {
@@ -278,7 +290,11 @@ function Wholesale() {
       return;
     }
 
-    window.open(buildPublicWholesaleLink(record.username), "_blank", "noopener,noreferrer");
+    try {
+      window.open(buildPublicWholesaleLink(record.username), "_blank", "noopener,noreferrer");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "تعذر فتح الصفحة العامة.");
+    }
   };
 
   const fetchSellMoneyData = async (affiliate) => {

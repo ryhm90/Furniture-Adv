@@ -64,7 +64,7 @@ function formatDate(value) {
   return dateFormatter.format(parsedDate);
 }
 
-export default function WholesaleCustomerPortal({ username }) {
+export default function WholesaleCustomerPortal({ username, dbName }) {
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
   const [data, setData] = useState(null);
@@ -75,9 +75,12 @@ export default function WholesaleCustomerPortal({ username }) {
     setError("");
 
     try {
-      const response = await fetch(`/api/public/wholesale/${encodeURIComponent(username)}`, {
-        cache: "no-store",
-      });
+      const response = await fetch(
+        `/api/public/wholesale/${encodeURIComponent(dbName)}/${encodeURIComponent(username)}`,
+        {
+          cache: "no-store",
+        },
+      );
 
       const result = await response.json();
 
@@ -94,7 +97,7 @@ export default function WholesaleCustomerPortal({ username }) {
     } finally {
       setLoading(false);
     }
-  }, [username]);
+  }, [dbName, username]);
 
   useEffect(() => {
     loadStatement();
