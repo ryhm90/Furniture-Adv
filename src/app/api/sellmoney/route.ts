@@ -75,6 +75,7 @@ export async function POST(request: NextRequest) {
     const sumNumber = parseMoney(Sum);
     const moneyPaidNumber = parseMoney(MoneyPaid);
     const floorCostNumber = parseMoney(FloorCost);
+    const normalizedSellor = sellor?.trim() ?? "";
 
     if (!Number.isFinite(sumNumber) || !Number.isFinite(moneyPaidNumber)) {
       return NextResponse.json(
@@ -87,7 +88,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ message: "Invalid payment totals" }, { status: 400 });
     }
 
-    if (moneyPaidNumber !== 0 && !sellor) {
+    if (moneyPaidNumber !== 0 && !normalizedSellor) {
       return NextResponse.json(
         { message: "Sellor is required when recording a payment" },
         { status: 400 },
@@ -118,7 +119,7 @@ export async function POST(request: NextRequest) {
           CellPhone,
           Provide,
           NOT_READY_STATUS,
-          sellor ?? "",
+          normalizedSellor,
           "0",
           Floor,
           Number.isFinite(floorCostNumber) ? floorCostNumber : 0,
@@ -139,7 +140,7 @@ export async function POST(request: NextRequest) {
 
         await db.execute(
           `UPDATE \`${dbName}\`.employees SET received = received + ? WHERE name = ?`,
-          [moneyPaidNumber, sellor],
+          [moneyPaidNumber, normalizedSellor],
         );
       }
 

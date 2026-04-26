@@ -17,6 +17,28 @@ import TabPanel from '@mui/lab/TabPanel';
 import Popover from '@mui/material/Popover';
 import EmptyTableRow from "@/app/components/EmptyTableRow";
 
+const SummaryTypography = styled(Typography)({
+  fontSize: "18px",
+  color: "#333",
+  marginBottom: "8px",
+});
+
+const fetchPatientData = async (patientId, patientProfileId) => {
+  const [diagnosisResponse, diagnosisResponseL, appointmentsResponse, financialsResponse] =
+    await Promise.all([
+      axios.get(`/api/appointments/diagnosis/${patientId}`),
+      axios.get(`/api/appointments/lab/${patientId}`),
+      axios.get(`/api/appointments/id/${patientProfileId}`),
+      axios.get(`/api/financials/${patientProfileId}`),
+    ]);
+
+  return {
+    diagnosis: diagnosisResponse.data,
+    labs: diagnosisResponseL.data,
+    appointments: appointmentsResponse.data,
+    financials: financialsResponse.data,
+  };
+};
 
 const AppointView = ({ open, handleClose, selectedPatientId }) => {
   const [page, setPage] = useState(0);
@@ -30,6 +52,8 @@ const AppointView = ({ open, handleClose, selectedPatientId }) => {
   const [value, setValue] = useState('1');
   const [doctors, setDoctors] = useState([]);
   const [diagnosislL, setDiagnosisL] = useState([]);
+  const selectedPatientRecordId = selectedPatientId?.id;
+  const selectedPatientProfileId = selectedPatientId?.Pid;
 
 
   const handleChangeTab = (event, newValue) => {
@@ -154,42 +178,24 @@ const AppointView = ({ open, handleClose, selectedPatientId }) => {
 
 
   const fetchData = useCallback(async () => {
-    if (!selectedPatientId) {
+    if (!selectedPatientRecordId || !selectedPatientProfileId) {
       return;
     }
 
     setLoading(true);
 
     try {
-      const diagnosisResponse = await axios.get(`/api/appointments/diagnosis/${selectedPatientId.id}`);
-      setDiagnosis(diagnosisResponse.data);
+      const data = await fetchPatientData(selectedPatientRecordId, selectedPatientProfileId);
+      setDiagnosis(data.diagnosis);
+      setDiagnosisL(data.labs);
+      setAppointments(data.appointments);
+      setFinancials(data.financials);
     } catch (_error) {
       toast.error('Error fetching patient data.');
     } finally {
       setLoading(false);
     }
-    try {
-      const diagnosisResponseL = await axios.get(`/api/appointments/lab/${selectedPatientId.id}`);
-      setDiagnosisL(diagnosisResponseL.data);
-    } catch (_error) {
-      toast.error('Error fetching patient data.');
-    } finally {
-      setLoading(false);
-    }
-    try {
-      const appointmentsResponse = await axios.get(`/api/appointments/id/${selectedPatientId.Pid}`);
-      setAppointments(appointmentsResponse.data);
-      const financialsResponse = await axios.get(`/api/financials/${selectedPatientId.Pid}`);
-      setFinancials(financialsResponse.data);
-      const diagnosiss  = await axios.get(`/api/appointments/diagnosis/${selectedPatientId.id}`);
-      setDiagnosis(diagnosiss.data);
-
-    } catch (_error) {
-      toast.error('Error fetching patient data.');
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedPatientId]);
+  }, [selectedPatientProfileId, selectedPatientRecordId]);
 
 
 
@@ -203,11 +209,6 @@ const AppointView = ({ open, handleClose, selectedPatientId }) => {
 
   const handleViewAppointment = (_appointmentId) => {
   };
-  const CustomTypography = styled(Typography)({
-    fontSize: "18px",
-    color: "#333",
-    marginBottom: "8px",
-  });
   const totalMoney = appointments.reduce((acc, appointment) => acc + appointment.money, 0);
   const totalPaid = financials.reduce((acc, financial) => acc + financial.moneyP, 0);
   const Ftotal = totalMoney - totalPaid;
@@ -1973,13 +1974,13 @@ const overlayColorl1L = diagnosislL.reduce((color, record) => {
             <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', marginBottom: '10px' }}>
   <div style={{ marginRight: '10px', width: '50%' }}>
     <div style={{ marginBottom: '10px', padding: '10px', borderRadius: '3px', backgroundColor: '#f5f5f5' }}>
-      <CustomTypography className="Alexandria mt-7" variant="h6" align="center">
+      <SummaryTypography className="Alexandria mt-7" variant="h6" align="center">
         General Information
-      </CustomTypography>
+      </SummaryTypography>
       <Box display="flex" flexDirection="column" alignItems="center" mb={2}>
-        <CustomTypography className="Alexandria"></CustomTypography>
-        <CustomTypography className="Alexandria"></CustomTypography>
-        <CustomTypography className="Alexandria"></CustomTypography>
+        <SummaryTypography className="Alexandria"></SummaryTypography>
+        <SummaryTypography className="Alexandria"></SummaryTypography>
+        <SummaryTypography className="Alexandria"></SummaryTypography>
       </Box>
     </div>
   </div>
