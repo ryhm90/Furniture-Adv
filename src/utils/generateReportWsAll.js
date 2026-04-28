@@ -1,72 +1,84 @@
 import { jsPDF } from "jspdf";
-import "jspdf-autotable";
+import autoTable from "jspdf-autotable";
 import { format } from "date-fns";
 
-// Import the custom font (Amiri-Regular-normal.js should export a valid Base64 string for the font)
-import { font } from "../../public/Amiri-Regular-normal.js";
+import {
+  applyArabicTableSupport,
+  registerPdfArabicFont,
+  renderPdfKeyValueLine,
+  sanitizePdfFileName,
+  shapePdfText,
+} from "./pdfArabic";
 
-export const generateReportWsAll = (data) => {
-  const doc = new jsPDF({ orientation: "portrait", format: "a5" });
+const numberFormatter = new Intl.NumberFormat("en-US");
 
-  // Add custom Arabic font (Amiri-Regular)
-  doc.addFileToVFS("Amiri-Regular.ttf", font); // Add the font file to VFS
-  doc.addFont("Amiri-Regular.ttf", "Amiri", "normal"); // Register the font in jsPDF
-  doc.setFont("Amiri", "normal"); // Set the font to Amiri-Regular
+function safeText(value, fallback = "-") {
+  if (value === null || value === undefined) {
+    return fallback;
+  }
 
-  // First Page: Title and Table
-  doc.setFontSize(20);
-  doc.text("تقرير حساب جملة ", 75, 15, { align: "center" });
-  doc.setFontSize(14);
-  // Calculate the sum of MPU
-  const totalMPU = data.reduce((sum, record) => sum + record.MPU, 0);
-  const formatCurrency = (value) => {
-    return new Intl.NumberFormat("en-IQ", {
-      style: "currency",
-      currency: "IQD",
-      maximumFractionDigits: 0, // No decimals for IQD
-    }).format(value);
-  };
-  // Add the total to the report
+  const normalized = String(value).trim();
+  return normalized || fallback;
+}
+
+function safeNumber(value) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatCurrency(value) {
+  return `${numberFormatter.format(safeNumber(value))} د.ع`;
+}
+
+export const generateReportWsAll = async (data) => {
+  const rows = Array.isArray(data) ? data : [];
+  const exportDate = format(new Date(), "yyyy-MM-dd");
+  const totalAmount = rows.reduce((sum, record) => sum + safeNumber(record?.MPU), 0);
+  const doc = new jsPDF({ orientation: "portrait", format: "a4", unit: "mm" });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const arabicTableSupport = applyArabicTableSupport(doc);
+
+  await registerPdfArabicFont(doc);
+
+  doc.setFillColor(20, 55, 62);
+  doc.roundedRect(12, 10, pageWidth - 24, 26, 4, 4, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(18);
+  doc.text(shapePdfText(doc, "تقرير أرصدة عملاء الجملة"), pageWidth / 2, 22, { align: "center" });
+
+  doc.setTextColor(15, 23, 42);
   doc.setFontSize(10);
-  let daty = format(new Date(), "yyyy-MM-dd")
-  doc.text(`التاريخ: ${daty}`, 15, 25, { align: "left" });
-  doc.text(`${formatCurrency(totalMPU)} : المجموع الكلي`, 15, 35, { align: "left" });
+  renderPdfKeyValueLine(doc, pageWidth, 48, "تاريخ التصدير", exportDate);
+  renderPdfKeyValueLine(doc, pageWidth, 56, "إجمالي الأرصدة", formatCurrency(totalAmount));
+  renderPdfKeyValueLine(doc, pageWidth, 64, "عدد العملاء", numberFormatter.format(rows.length));
 
-  // Convert the grouped data into the table data format
-  const tableData = data.map((record) => [
-    record.affiliate, // القيم المجمعة
-    formatCurrency(record.MPU), // Assuming 'MPU' is a number to be formatted as currency
-  ]);
-
-  // Add the main table
-  doc.autoTable({
-    head: [
-      [
-        "البيج", "المبلغ"
-      ],
-    ],
-    body: tableData,
-    startY: 45, // Adjusted startY to prevent overlap with the "المجموع الكلي"
+  autoTable(doc, {
+    startY: 74,
+    head: [["اسم الزبون", "الرصيد"]],
+    body: rows.map((record) => [safeText(record?.affiliate), formatCurrency(record?.MPU)]),
     styles: {
-      font: "Amiri", // استخدام خط يدعم العربية
-      fontSize: 8,
-      halign: "center", // محاذاة النصوص في الوسط
-      cellPadding: 2, // تقليل المسافة داخل الخلايا
+      fontSize: 10,
+      halign: "center",
+      cellPadding: 2.5,
+      overflow: "linebreak",
     },
     headStyles: {
+      fillColor: [20, 55, 62],
+      textColor: 255,
       halign: "center",
-      valign: "middle",
-      textColor: '#000000', // Set text color
-      fillColor: [211, 211, 211], // لون العنوان (اختياري)
+    },
+    alternateRowStyles: {
+      fillColor: [249, 250, 251],
     },
     columnStyles: {
-      0: { cellWidth: 60 },
+      0: { cellWidth: 110 },
       1: { cellWidth: 60 },
     },
-    tableWidth: "auto", // Use appropriate table width based on content
-    rtl: true, // Support right-to-left direction for Arabic text
+    margin: { left: 18, right: 18, bottom: 16 },
+    didParseCell: (hookData) => {
+      arabicTableSupport.didParseCell?.(hookData);
+    },
   });
 
-  // Save the generated PDF
-  doc.save(`Delivery_Report_${daty}.pdf`);
+  doc.save(`wholesale-customers-summary-${sanitizePdfFileName(exportDate)}.pdf`);
 };

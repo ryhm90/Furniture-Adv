@@ -12,6 +12,7 @@ import {
   Button,
   Card,
   CardContent,
+  Chip,
   CircularProgress,
   Grid,
   InputAdornment,
@@ -36,6 +37,17 @@ const DeliveryResultsTable = dynamic(() => import("./DeliveryResultsTable"), {
   ssr: false,
 });
 
+const DELIVERY_READY_STATUS = "جهزت";
+const DELIVERY_PENDING_STATUS = "لم تجهز";
+const DELIVERY_CANCELLED_STATUS = "ملغى";
+
+const numberFormatter = new Intl.NumberFormat("ar-IQ");
+const currencyFormatter = new Intl.NumberFormat("ar-IQ", {
+  style: "currency",
+  currency: "IQD",
+  maximumFractionDigits: 0,
+});
+
 const actionButtonSx = {
   borderRadius: "12px",
   backgroundColor: "#386e6e",
@@ -44,7 +56,6 @@ const actionButtonSx = {
   fontWeight: 400,
   fontSize: "13px",
   px: 2,
-  
   py: 1.1,
   textTransform: "none",
   "&:hover": {
@@ -60,6 +71,12 @@ const summaryCardSx = {
   border: "1px solid rgba(15, 23, 42, 0.06)",
 };
 
+const sectionCardSx = {
+  borderRadius: 3,
+  boxShadow: "0 16px 36px rgba(15, 23, 42, 0.05)",
+  border: "1px solid rgba(15, 23, 42, 0.06)",
+};
+
 const getTodayDate = () => {
   const date = new Date();
   const year = date.getFullYear();
@@ -68,7 +85,106 @@ const getTodayDate = () => {
   return `${year}-${month}-${day}`;
 };
 
-function SummaryCard({ title, value, helper }) {
+const formatCurrency = (value) => currencyFormatter.format(Number(value ?? 0) || 0);
+
+const safeText = (value, fallback = "") => {
+  if (value === null || value === undefined) {
+    return fallback;
+  }
+
+  const normalized = String(value).trim();
+  return normalized || fallback;
+};
+
+const mergeUniqueText = (currentValue, nextValue) => {
+  const values = [...String(currentValue ?? "").split(","), ...String(nextValue ?? "").split(",")]
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  return [...new Set(values)].join("، ");
+};
+
+const buildDeliveryOrders = (rows) => {
+  const map = new Map();
+
+  rows.forEach((row) => {
+    const invoiceNumber = safeText(row?.InvoNum);
+    if (!invoiceNumber) {
+      return;
+    }
+
+    const existing = map.get(invoiceNumber);
+    const roomName = safeText(row?.RoomName || row?.RoomNames, "");
+
+    if (!existing) {
+      map.set(invoiceNumber, {
+        ...row,
+        InvoNum: invoiceNumber,
+        RoomNames: roomName || safeText(row?.RoomNames, "-"),
+        PhoneSummary:
+          [safeText(row?.CellPhone, ""), safeText(row?.CellPhone1, "")]
+            .filter(Boolean)
+            .join("، ") || "-",
+        AddressSummary:
+          [safeText(row?.Provin, ""), safeText(row?.Provin2, "")]
+            .filter(Boolean)
+            .join(" - ") || "-",
+      });
+      return;
+    }
+
+    existing.RoomNames = mergeUniqueText(existing.RoomNames, roomName || row?.RoomNames);
+    existing.PhoneSummary = mergeUniqueText(
+      existing.PhoneSummary,
+      [safeText(row?.CellPhone, ""), safeText(row?.CellPhone1, "")]
+        .filter(Boolean)
+        .join("، "),
+    );
+    existing.AddressSummary = mergeUniqueText(
+      existing.AddressSummary,
+      [safeText(row?.Provin, ""), safeText(row?.Provin2, "")]
+        .filter(Boolean)
+        .join(" - "),
+    );
+  });
+
+  return Array.from(map.values());
+};
+
+const buildAssignmentSummary = (orders, field) => {
+  const map = new Map();
+
+  orders.forEach((order) => {
+    const name = safeText(order?.[field], "غير مسند");
+    const existing = map.get(name) ?? {
+      name,
+      count: 0,
+      ready: 0,
+      pending: 0,
+      cancelled: 0,
+      floorCost: 0,
+      remaining: 0,
+    };
+
+    existing.count += 1;
+    existing.floorCost += Number(order?.FloorCost ?? 0) || 0;
+    existing.remaining += Number(order?.MoneyRemain ?? 0) || 0;
+
+    if (order?.Por === DELIVERY_CANCELLED_STATUS) {
+      existing.cancelled += 1;
+    } else if (order?.warehouseS === DELIVERY_READY_STATUS) {
+      existing.ready += 1;
+    } else {
+      existing.pending += 1;
+    }
+
+    map.set(name, existing);
+  });
+
+  return Array.from(map.values()).sort((left, right) => right.count - left.count);
+};
+
+function SummaryCard({ title, value, helper, accentColor = "#0f172a" }) {
   return (
     <Card sx={summaryCardSx}>
       <CardContent sx={{ p: 2.5 }}>
@@ -87,7 +203,7 @@ function SummaryCard({ title, value, helper }) {
             fontFamily: "Alexandria, sans-serif",
             fontSize: "28px",
             fontWeight: 600,
-            color: "#0f172a",
+            color: accentColor,
           }}
         >
           {value}
@@ -98,10 +214,120 @@ function SummaryCard({ title, value, helper }) {
             fontFamily: "Alexandria, sans-serif",
             fontSize: "12px",
             color: "text.secondary",
+            lineHeight: 1.9,
           }}
         >
           {helper}
         </Typography>
+      </CardContent>
+    </Card>
+  );
+}
+
+function AssignmentSummaryCard({ title, description, items, accentColor }) {
+  return (
+    <Card sx={{ ...summaryCardSx, overflow: "hidden" }}>
+      <CardContent sx={{ p: 2.5 }}>
+        <Stack spacing={2}>
+          <Box>
+            <Typography
+              sx={{
+                fontFamily: "Alexandria, sans-serif",
+                fontSize: "16px",
+                fontWeight: 600,
+                color: "#0f172a",
+              }}
+            >
+              {title}
+            </Typography>
+            <Typography
+              sx={{
+                mt: 0.75,
+                fontFamily: "Alexandria, sans-serif",
+                fontSize: "12px",
+                color: "text.secondary",
+                lineHeight: 1.8,
+              }}
+            >
+              {description}
+            </Typography>
+          </Box>
+
+          <Stack spacing={1.2}>
+            {items.length ? (
+              items.slice(0, 6).map((item) => (
+                <Box
+                  key={item.name}
+                  sx={{
+                    p: 1.5,
+                    borderRadius: 2,
+                    border: "1px solid rgba(15, 23, 42, 0.06)",
+                    backgroundColor: "rgba(248, 250, 252, 0.85)",
+                  }}
+                >
+                  <Stack
+                    direction="row"
+                    justifyContent="space-between"
+                    alignItems="center"
+                    spacing={1}
+                    sx={{ mb: 1 }}
+                  >
+                    <Typography
+                      sx={{
+                        fontFamily: "Alexandria, sans-serif",
+                        fontSize: "13px",
+                        fontWeight: 600,
+                        color: "#0f172a",
+                      }}
+                    >
+                      {item.name}
+                    </Typography>
+                    <Chip
+                      label={`${numberFormatter.format(item.count)} وصلة`}
+                      size="small"
+                      sx={{
+                        fontFamily: "Alexandria, sans-serif",
+                        backgroundColor: accentColor,
+                        color: "white",
+                      }}
+                    />
+                  </Stack>
+
+                  <Stack direction="row" spacing={0.8} flexWrap="wrap" useFlexGap>
+                    <Chip
+                      size="small"
+                      label={`جاهز: ${numberFormatter.format(item.ready)}`}
+                      sx={{ fontFamily: "Alexandria, sans-serif" }}
+                    />
+                    <Chip
+                      size="small"
+                      label={`معلّق: ${numberFormatter.format(item.pending)}`}
+                      sx={{ fontFamily: "Alexandria, sans-serif" }}
+                    />
+                    <Chip
+                      size="small"
+                      label={`ملغي: ${numberFormatter.format(item.cancelled)}`}
+                      sx={{ fontFamily: "Alexandria, sans-serif" }}
+                    />
+                  </Stack>
+                </Box>
+              ))
+            ) : (
+              <Alert
+                severity="info"
+                sx={{
+                  borderRadius: 2,
+                  "& .MuiAlert-message": {
+                    fontFamily: "Alexandria, sans-serif",
+                    fontSize: "12px",
+                  },
+                }}
+              >
+                لا توجد بيانات كافية لبناء هذا الملخص حالياً.
+              </Alert>
+            )}
+          </Stack>
+        </Stack>
       </CardContent>
     </Card>
   );
@@ -128,9 +354,45 @@ function Delivery() {
   const [carpentersDialogOpen, setCarpentersDialogOpen] = useState(false);
 
   const isQuerySearch = Boolean(searchQuery.trim());
+  const deliveryOrders = useMemo(() => buildDeliveryOrders(data), [data]);
   const readyCount = useMemo(
-    () => data.filter((row) => row.warehouseS === "جهزت").length,
-    [data],
+    () => deliveryOrders.filter((row) => row.warehouseS === DELIVERY_READY_STATUS).length,
+    [deliveryOrders],
+  );
+  const pendingCount = useMemo(
+    () =>
+      deliveryOrders.filter(
+        (row) => row.Por !== DELIVERY_CANCELLED_STATUS && row.warehouseS !== DELIVERY_READY_STATUS,
+      ).length,
+    [deliveryOrders],
+  );
+  const cancelledCount = useMemo(
+    () => deliveryOrders.filter((row) => row.Por === DELIVERY_CANCELLED_STATUS).length,
+    [deliveryOrders],
+  );
+  const unassignedDriverCount = useMemo(
+    () => deliveryOrders.filter((row) => !safeText(row.Driver)).length,
+    [deliveryOrders],
+  );
+  const unassignedCarpenterCount = useMemo(
+    () => deliveryOrders.filter((row) => !safeText(row.CarNam)).length,
+    [deliveryOrders],
+  );
+  const totalFloorCost = useMemo(
+    () => deliveryOrders.reduce((sum, row) => sum + (Number(row?.FloorCost ?? 0) || 0), 0),
+    [deliveryOrders],
+  );
+  const totalRemaining = useMemo(
+    () => deliveryOrders.reduce((sum, row) => sum + (Number(row?.MoneyRemain ?? 0) || 0), 0),
+    [deliveryOrders],
+  );
+  const driverSummary = useMemo(
+    () => buildAssignmentSummary(deliveryOrders, "Driver"),
+    [deliveryOrders],
+  );
+  const carpenterSummary = useMemo(
+    () => buildAssignmentSummary(deliveryOrders, "CarNam"),
+    [deliveryOrders],
   );
 
   const fetchStaff = useCallback(async () => {
@@ -172,12 +434,15 @@ function Delivery() {
         `/api/search/selldelivery?query=${encodeURIComponent(searchQuery.trim())}&date=${encodeURIComponent(isQuerySearch ? "" : selectedDate || "")}`,
       );
       const result = await response.json().catch(() => null);
+
       if (!response.ok) {
         throw new Error(result?.message || result?.error || "تعذر جلب بيانات تقرير التجهيز.");
       }
+
       if (!Array.isArray(result)) {
         throw new Error("بيانات تقرير التجهيز غير صالحة.");
       }
+
       setData(result);
       setPage(0);
     } catch (error) {
@@ -207,17 +472,21 @@ function Delivery() {
     setViewDialogOpen(true);
   };
 
-  const handleTimeChange = async (event, type, invoiceNumber) => {
-    const updatedTime = event.target.value;
+  const refreshResultsIfNeeded = async () => {
+    if (hasSearched) {
+      await handleSearchClick();
+    }
+  };
 
+  const handleTimeChange = async (event, type, invoiceNumber) => {
     try {
       await axios.put("/api/delivery/update", {
         InvoNum: invoiceNumber,
         type,
-        name: updatedTime || null,
+        name: event.target.value || null,
       });
       toast.success("تم تحديث الوقت بنجاح.");
-      handleSearchClick();
+      await refreshResultsIfNeeded();
     } catch (error) {
       console.error("Error updating time:", error);
       toast.error("تعذر تحديث الوقت.");
@@ -225,16 +494,14 @@ function Delivery() {
   };
 
   const handleCarpenterChange = async (event, type, invoiceNumber) => {
-    const updatedCarpenter = event.target.value;
-
     try {
       await axios.put("/api/delivery/update", {
         InvoNum: invoiceNumber,
         type,
-        name: updatedCarpenter,
+        name: event.target.value,
       });
       toast.success("تم تحديث فني التركيب بنجاح.");
-      handleSearchClick();
+      await refreshResultsIfNeeded();
     } catch (error) {
       console.error("Error updating carpenter:", error);
       toast.error("تعذر تحديث فني التركيب.");
@@ -242,16 +509,14 @@ function Delivery() {
   };
 
   const handleDriverChange = async (event, type, invoiceNumber) => {
-    const updatedDriver = event.target.value;
-
     try {
       await axios.put("/api/delivery/update", {
         InvoNum: invoiceNumber,
         type,
-        name: updatedDriver,
+        name: event.target.value,
       });
       toast.success("تم تحديث السائق بنجاح.");
-      handleSearchClick();
+      await refreshResultsIfNeeded();
     } catch (error) {
       console.error("Error updating driver:", error);
       toast.error("تعذر تحديث السائق.");
@@ -263,10 +528,10 @@ function Delivery() {
       await axios.put("/api/delivery/update", {
         InvoNum: invoice.InvoNum,
         type: "warehouseS",
-        name: "لم تجهز",
+        name: DELIVERY_PENDING_STATUS,
       });
       toast.success("تم تحديث حالة التجهيز بنجاح.");
-      handleSearchClick();
+      await refreshResultsIfNeeded();
     } catch (error) {
       console.error("Error updating delivery status:", error);
       toast.error("تعذر تحديث حالة التجهيز.");
@@ -278,10 +543,10 @@ function Delivery() {
       await axios.put("/api/delivery/update", {
         InvoNum: invoice.InvoNum,
         type: "warehouseS",
-        name: "جهزت",
+        name: DELIVERY_READY_STATUS,
       });
       toast.success("تم تحديث حالة التجهيز بنجاح.");
-      handleSearchClick();
+      await refreshResultsIfNeeded();
     } catch (error) {
       console.error("Error updating delivery status:", error);
       toast.error("تعذر تحديث حالة التجهيز.");
@@ -304,7 +569,10 @@ function Delivery() {
       const result = await response.json();
       const { generateReport } = await import("@/utils/generateReport");
 
-      generateReport(result, selectedDate, pageName);
+      await generateReport(result, {
+        selectedDate,
+        pageName,
+      });
       toast.success("تم تنزيل تقرير التجهيز بنجاح.");
     } catch (error) {
       console.error("Error generating delivery report:", error);
@@ -336,9 +604,7 @@ function Delivery() {
       setDriverDrafts(nextDrivers.map((item) => ({ ...item })));
       toast.success("تم حفظ السائقين بنجاح.");
       setDriversDialogOpen(false);
-      if (hasSearched) {
-        await handleSearchClick();
-      }
+      await refreshResultsIfNeeded();
     } catch (error) {
       console.error("Error saving drivers:", error);
       toast.error("تعذر حفظ السائقين.");
@@ -353,9 +619,7 @@ function Delivery() {
       setCarpenterDrafts(nextCarpenters.map((item) => ({ ...item })));
       toast.success("تم حفظ النجارين بنجاح.");
       setCarpentersDialogOpen(false);
-      if (hasSearched) {
-        await handleSearchClick();
-      }
+      await refreshResultsIfNeeded();
     } catch (error) {
       console.error("Error saving carpenters:", error);
       toast.error("تعذر حفظ النجارين.");
@@ -363,7 +627,7 @@ function Delivery() {
   };
 
   const handleDeleteDriver = async (index, driver) => {
-    if (!confirm("هل أنت متأكد أنك تريد حذف هذا السائق نهائيًا؟")) {
+    if (!confirm("هل أنت متأكد أنك تريد حذف هذا السائق نهائياً؟")) {
       return;
     }
 
@@ -378,9 +642,7 @@ function Delivery() {
       setDrivers(nextDrivers);
       setDriverDrafts(nextDrivers.map((item) => ({ ...item })));
       toast.success("تم حذف السائق.");
-      if (hasSearched) {
-        await handleSearchClick();
-      }
+      await refreshResultsIfNeeded();
     } catch (error) {
       console.error("Error deleting driver:", error);
       toast.error("تعذر حذف السائق.");
@@ -388,7 +650,7 @@ function Delivery() {
   };
 
   const handleDeleteCarpenter = async (index, carpenter) => {
-    if (!confirm("هل أنت متأكد أنك تريد حذف هذا النجار نهائيًا؟")) {
+    if (!confirm("هل أنت متأكد أنك تريد حذف هذا النجار نهائياً؟")) {
       return;
     }
 
@@ -403,9 +665,7 @@ function Delivery() {
       setCarpenters(nextCarpenters);
       setCarpenterDrafts(nextCarpenters.map((item) => ({ ...item })));
       toast.success("تم حذف النجار.");
-      if (hasSearched) {
-        await handleSearchClick();
-      }
+      await refreshResultsIfNeeded();
     } catch (error) {
       console.error("Error deleting carpenter:", error);
       toast.error("تعذر حذف النجار.");
@@ -423,7 +683,7 @@ function Delivery() {
           open={paymentDialogOpen}
           onClose={() => {
             setPaymentDialogOpen(false);
-            handleSearchClick();
+            refreshResultsIfNeeded();
           }}
           inv={selectedInvoice}
           onSave={() => {
@@ -438,7 +698,7 @@ function Delivery() {
           open={viewDialogOpen}
           onClose={() => {
             setViewDialogOpen(false);
-            handleSearchClick();
+            refreshResultsIfNeeded();
           }}
           inv={selectedViewInvoice}
         />
@@ -525,8 +785,8 @@ function Delivery() {
                       color: "rgba(18, 50, 50, 0.78)",
                     }}
                   >
-                    ابحث باسم الزبون أو رقم الهاتف أو بتاريخ التجهيز، ثم حدّث الفريق والحالة
-                    والتسديد من نفس الشاشة.
+                    راقب توزيع الوصولات على السائقين والنجارين، تتبّع حالة التجهيز، واطبع
+                    تقريراً تنفيذياً واضحاً يبيّن حركة اليوم ومشاكله التشغيلية.
                   </Typography>
                 </Box>
 
@@ -555,32 +815,73 @@ function Delivery() {
           <Grid container spacing={2.25}>
             <Grid item xs={12} md={4}>
               <SummaryCard
-                title="نتائج البحث الحالية"
-                value={data.length}
-                helper="عدد الوصولات الظاهرة في الجدول الحالي"
+                title="إجمالي الوصولات الحالية"
+                value={numberFormatter.format(deliveryOrders.length)}
+                helper="عدد الوصولات الفريدة الظاهرة في نتائج البحث الحالية."
               />
             </Grid>
             <Grid item xs={12} md={4}>
               <SummaryCard
-                title="التجهيزات المكتملة"
-                value={readyCount}
-                helper="عدد الوصولات التي حالتها جهزت"
+                title="الوصولات الجاهزة"
+                value={numberFormatter.format(readyCount)}
+                helper="الوصولات التي تم تعليمها بحالة جهزت."
+                accentColor="#166534"
               />
             </Grid>
             <Grid item xs={12} md={4}>
               <SummaryCard
-                title="وضع البحث"
-                value={isQuerySearch ? "اسم أو هاتف" : "تاريخ"}
-                helper={
-                  isQuerySearch
-                    ? "سيظهر تاريخ التجهيز ويتم تعطيل الطباعة"
-                    : "سيتم إخفاء التاريخ لأن البحث حسب يوم محدد"
-                }
+                title="الوصولات المعلّقة"
+                value={numberFormatter.format(pendingCount)}
+                helper="الوصولات التي ما زالت بحاجة إلى متابعة أو تجهيز."
+                accentColor="#b45309"
+              />
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <SummaryCard
+                title="الوصولات الملغاة"
+                value={numberFormatter.format(cancelledCount)}
+                helper="وصولات تحمل حالة وصل ملغي في النتائج الحالية."
+                accentColor="#b91c1c"
+              />
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <SummaryCard
+                title="إجمالي تكلفة التفريغ"
+                value={formatCurrency(totalFloorCost)}
+                helper="المجموع التشغيلي لتكلفة التفريغ في الوصولات الحالية."
+                accentColor="#1d4ed8"
+              />
+            </Grid>
+            <Grid item xs={12} md={4}>
+              <SummaryCard
+                title="إجمالي المبالغ المتبقية"
+                value={formatCurrency(totalRemaining)}
+                helper="مجموع المبالغ المتبقية المرتبطة بهذه الوصولات."
+                accentColor="#7c3aed"
               />
             </Grid>
           </Grid>
 
-          <Card sx={{ borderRadius: 3, boxShadow: "0 16px 36px rgba(15, 23, 42, 0.05)" }}>
+          <Grid container spacing={2.25}>
+            <Grid item xs={12} lg={6}>
+              <AssignmentSummaryCard
+                title="ملخص السائقين"
+                description={`عدد السائقين غير المسند لهم وصولات حالياً: ${numberFormatter.format(unassignedDriverCount)}`}
+                items={driverSummary}
+                accentColor="#0f766e"
+              />
+            </Grid>
+            <Grid item xs={12} lg={6}>
+              <AssignmentSummaryCard
+                title="ملخص فنيي التركيب"
+                description={`عدد الوصولات غير المسندة لنجار حالياً: ${numberFormatter.format(unassignedCarpenterCount)}`}
+                items={carpenterSummary}
+                accentColor="#7c3aed"
+              />
+            </Grid>
+          </Grid>
+
+          <Card sx={sectionCardSx}>
             <CardContent sx={{ p: { xs: 2, md: 2.5 } }}>
               <Stack spacing={2.25}>
                 <Typography
@@ -591,7 +892,7 @@ function Delivery() {
                     color: "#0f172a",
                   }}
                 >
-                  فلاتر البحث والإجراءات
+                  فلاتر البحث وإجراءات التقرير
                 </Typography>
 
                 <Grid container spacing={2}>
@@ -689,8 +990,8 @@ function Delivery() {
                   }}
                 >
                   {isQuerySearch
-                    ? "عند البحث باسم الزبون أو رقم الهاتف سيظهر تاريخ التجهيز داخل الجدول، ويتم تعطيل زر طباعة التقرير."
-                    : "عند البحث بالتاريخ يتم إخفاء عمود تاريخ التجهيز لأن كل النتائج تخص اليوم المحدد، وتبقى الطباعة متاحة."}
+                    ? "عند البحث باسم الزبون أو رقم الهاتف يظهر تاريخ التجهيز داخل الجدول، ويتم تعطيل طباعة التقرير لأن التقرير المهني يعتمد على يوم تشغيل محدد."
+                    : "عند البحث بالتاريخ يتم تفعيل طباعة تقرير تجهيز كامل يحتوي على ملخص تنفيذي وتجميع حسب السائق والنجار وصفحات تفاصيل لكل وصلة."}
                 </Alert>
               </Stack>
             </CardContent>

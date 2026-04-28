@@ -362,12 +362,12 @@ function DeliveryResultsTable({
           <TableBody>
             {rows
               .slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage)
-              .map((row) => (
+              .map((row, rowIndex) => (
                 <TableRow
                   hover
                   role="checkbox"
                   tabIndex={-1}
-                  key={row.InvoNum}
+                  key={`${row.InvoNum ?? "delivery-row"}-${row.ID ?? row.id ?? row.Pid ?? rowIndex}`}
                   sx={{
                     "&:nth-of-type(odd)": {
                       backgroundColor: "rgba(15, 23, 42, 0.018)",
@@ -402,8 +402,12 @@ function DeliveryResultsTable({
                         <MenuItem value="" disabled sx={menuItemSx}>
                           اختر السائق
                         </MenuItem>
-                        {getOptionsWithCurrentValue(drivers, row.Driver).map((driver) => (
-                          <MenuItem key={driver.ID} value={driver.Name} sx={menuItemSx}>
+                        {getOptionsWithCurrentValue(drivers, row.Driver).map((driver, optionIndex) => (
+                          <MenuItem
+                            key={`${driver.ID ?? "driver"}-${driver.Name ?? optionIndex}`}
+                            value={driver.Name}
+                            sx={menuItemSx}
+                          >
                             {driver.Name}
                           </MenuItem>
                         ))}
@@ -424,8 +428,12 @@ function DeliveryResultsTable({
                         <MenuItem value="" disabled sx={menuItemSx}>
                           اختر فني التركيب
                         </MenuItem>
-                        {getOptionsWithCurrentValue(carpenters, row.CarNam).map((carpenter) => (
-                          <MenuItem key={carpenter.ID} value={carpenter.Name} sx={menuItemSx}>
+                        {getOptionsWithCurrentValue(carpenters, row.CarNam).map((carpenter, optionIndex) => (
+                          <MenuItem
+                            key={`${carpenter.ID ?? "carpenter"}-${carpenter.Name ?? optionIndex}`}
+                            value={carpenter.Name}
+                            sx={menuItemSx}
+                          >
                             {carpenter.Name}
                           </MenuItem>
                         ))}
@@ -505,7 +513,9 @@ function DeliveryResultsTable({
                   </TableCell>
                 </TableRow>
               ))}
-            {rows.length === 0 ? <EmptyTableRow colSpan={showProvideColumn ? 11 : 10} /> : null}
+            {rows.length === 0 ? (
+              <EmptyTableRow key="delivery-empty-row" colSpan={showProvideColumn ? 11 : 10} />
+            ) : null}
           </TableBody>
         </Table>
       </TableContainer>

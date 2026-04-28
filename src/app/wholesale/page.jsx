@@ -370,7 +370,7 @@ function Wholesale() {
       }
 
       const { generateReportWs } = await import("@/utils/generateReportWs");
-      generateReportWs(result, affiliate.affiliate);
+      await generateReportWs(result, affiliate.affiliate);
       toast.success("تم تنزيل التقرير.");
     } catch (error) {
       console.error("Error fetching sellmoney data:", error);
@@ -394,7 +394,7 @@ function Wholesale() {
       }
 
       const { generateReportWsAll } = await import("@/utils/generateReportWsAll");
-      generateReportWsAll(resultAll);
+      await generateReportWsAll(resultAll);
     } catch (error) {
       console.error("Error fetching sellmoney data:", error);
       toast.error("تعذر تحميل تقرير الزبائن.");

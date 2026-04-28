@@ -1,87 +1,218 @@
 import { jsPDF } from "jspdf";
-import "jspdf-autotable";
+import autoTable from "jspdf-autotable";
 import { format } from "date-fns";
 
-// Import the custom font (Amiri-Regular-normal.js should export a valid Base64 string for the font)
-import { font } from "../../public/Amiri-Regular-normal.js";
+import {
+  applyArabicTableSupport,
+  registerPdfArabicFont,
+  renderPdfKeyValueLine,
+  sanitizePdfFileName,
+  shapePdfText,
+} from "./pdfArabic";
 import { mapWholesaleTransactionType } from "./mapWholesaleTransactionType.js";
 
-export const generateReportWs = (data, affiliate) => {
-  const doc = new jsPDF({ orientation: "landscape", format: "a4" });
+const DASH_LABEL = "-";
+const numberFormatter = new Intl.NumberFormat("en-US");
 
-  // Add custom Arabic font (Amiri-Regular)
-  doc.addFileToVFS("Amiri-Regular.ttf", font); // Add the font file to VFS
-  doc.addFont("Amiri-Regular.ttf", "Amiri", "normal"); // Register the font in jsPDF
-  doc.setFont("Amiri", "normal"); // Set the font to Amiri-Regular
+function safeText(value, fallback = DASH_LABEL) {
+  if (value === null || value === undefined) {
+    return fallback;
+  }
 
-  // First Page: Title and Table
-  doc.setFontSize(20);
-  doc.text("تقرير حساب جملة ", 250, 15, { align: "center" });
-  doc.setFontSize(14);
+  const normalized = String(value).trim();
+  return normalized || fallback;
+}
 
-  doc.text(`المستفيد :   ${affiliate}`, 250, 25, { align: "center" });
+function safeNumber(value) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
 
-  // Calculate the sum of MPU
-  const totalMPU = data.reduce((sum, record) => sum + record.MPU, 0);
-  const formatCurrency = (value) => {
-    return new Intl.NumberFormat("en-IQ", {
-      style: "currency",
-      currency: "IQD",
-      maximumFractionDigits: 0, // No decimals for IQD
-    }).format(value);
-  };
-  // Add the total to the report
-  doc.setFontSize(12);
-  doc.text(`التاريخ: ${format(new Date(), "yyyy-MM-dd")}`, 30, 25, { align: "left" });
-  doc.text(`${formatCurrency(totalMPU)} : المجموع الكلي`, 30, 35, { align: "left" });
+function formatCurrency(value) {
+  return `${numberFormatter.format(safeNumber(value))} د.ع`;
+}
 
- 
+function formatStatementDate(value) {
+  if (!value) {
+    return DASH_LABEL;
+  }
 
-  // Convert the grouped data into the table data format
-  let cumulativeSum = 0;
+  const parsedDate = new Date(value);
 
-  const tableData = data.map((record) => {
-    cumulativeSum += record.MPU; // Accumulate the sum
-    return [
-      record.RoomNames, 
-      formatCurrency(cumulativeSum), // المبلغ التراكمي (New Column)
-      formatCurrency(record.MPU), // المبلغ
-      record.Driver,
-      `${record.Provin || ''} ${record.Provin2 || ''}`, 
-      record.countt,
-      format(new Date(record.date), "yyyy-MM-dd"), 
-      mapWholesaleTransactionType(record.De),
-      record.Invonum,
-    ];
-  });
-  
+  if (Number.isNaN(parsedDate.getTime())) {
+    return DASH_LABEL;
+  }
 
-  // Add the main table
-  doc.autoTable({
-    head: [
-      [
-        "المواد","المبلغ التراكمي" ,"المبلغ", "السائق", "العنوان", "العدد", "التاريخ", "التفاصيل","رقم الفاتورة"
+  return format(parsedDate, "yyyy-MM-dd");
+}
+
+function buildAddress(record) {
+  return [safeText(record?.Provin, ""), safeText(record?.Provin2, "")]
+    .filter(Boolean)
+    .join(" - ") || DASH_LABEL;
+}
+
+function getTransactionTone(typeLabel) {
+  if (typeLabel === "شراء") {
+    return {
+      fillColor: [220, 252, 231],
+      textColor: [22, 101, 52],
+      fontStyle: "bold",
+    };
+  }
+
+  if (typeLabel === "تسديد") {
+    return {
+      fillColor: [219, 234, 254],
+      textColor: [30, 64, 175],
+      fontStyle: "bold",
+    };
+  }
+
+  if (typeLabel === "ملغاة") {
+    return {
+      fillColor: [254, 226, 226],
+      textColor: [185, 28, 28],
+      fontStyle: "bold",
+    };
+  }
+
+  return null;
+}
+
+export const generateReportWs = async (data, affiliate) => {
+  const rows = Array.isArray(data) ? data : [];
+  const customerName = safeText(affiliate, "عميل الجملة");
+  const exportDate = format(new Date(), "yyyy-MM-dd");
+  const doc = new jsPDF({ orientation: "landscape", format: "a4", unit: "mm" });
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const arabicTableSupport = applyArabicTableSupport(doc);
+
+  await registerPdfArabicFont(doc);
+
+  let cumulativeBalance = 0;
+  let purchasesCount = 0;
+  let paymentsCount = 0;
+  let cancelledCount = 0;
+
+  const tableRows = rows.map((record) => {
+    const amount = safeNumber(record?.MPU);
+    const typeLabel = mapWholesaleTransactionType(record?.De);
+    cumulativeBalance += amount;
+
+    if (typeLabel === "شراء") {
+      purchasesCount += 1;
+    } else if (typeLabel === "تسديد") {
+      paymentsCount += 1;
+    } else if (typeLabel === "ملغاة") {
+      cancelledCount += 1;
+    }
+
+    return {
+      rawType: typeLabel,
+      cells: [
+        safeText(record?.Invonum),
+        formatStatementDate(record?.date),
+        typeLabel,
+        safeText(record?.RoomNames),
+        safeText(record?.countt, "0"),
+        buildAddress(record),
+        safeText(record?.Driver),
+        formatCurrency(amount),
+        formatCurrency(cumulativeBalance),
       ],
-    ],
-    body: tableData,
-    startY: 45, // Adjusted startY to prevent overlap with the "المجموع الكلي"
+    };
+  });
+
+  const totalAmount = rows.reduce((sum, record) => sum + safeNumber(record?.MPU), 0);
+
+  doc.setFillColor(20, 55, 62);
+  doc.roundedRect(12, 10, pageWidth - 24, 28, 4, 4, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(20);
+  doc.text(shapePdfText(doc, "كشف حساب عميل الجملة"), pageWidth / 2, 21, { align: "center" });
+  doc.setFontSize(14);
+  doc.text(shapePdfText(doc, customerName), pageWidth / 2, 31, { align: "center" });
+
+  doc.setTextColor(15, 23, 42);
+  doc.setFontSize(10);
+  renderPdfKeyValueLine(doc, pageWidth, 48, "تاريخ التصدير", exportDate);
+  renderPdfKeyValueLine(doc, pageWidth, 56, "إجمالي الحركة", formatCurrency(totalAmount));
+
+  const summaryCards = [
+    { title: "عدد الحركات", value: numberFormatter.format(rows.length), color: [20, 55, 62] },
+    { title: "عمليات الشراء", value: numberFormatter.format(purchasesCount), color: [22, 101, 52] },
+    { title: "عمليات التسديد", value: numberFormatter.format(paymentsCount), color: [30, 64, 175] },
+    { title: "عمليات ملغاة", value: numberFormatter.format(cancelledCount), color: [185, 28, 28] },
+    { title: "الرصيد الختامي", value: formatCurrency(cumulativeBalance), color: [91, 33, 182] },
+  ];
+
+  summaryCards.forEach((card, index) => {
+    const x = 16 + index * 55;
+    doc.setFillColor(248, 250, 252);
+    doc.setDrawColor(226, 232, 240);
+    doc.roundedRect(x, 66, 50, 20, 3, 3, "FD");
+    doc.setFillColor(...card.color);
+    doc.roundedRect(x + 42.5, 69, 3, 14, 1, 1, "F");
+    doc.setFontSize(9);
+    doc.text(shapePdfText(doc, card.title), x + 40, 74, { align: "right" });
+    doc.setFontSize(11);
+    doc.text(shapePdfText(doc, card.value), x + 40, 82, { align: "right" });
+  });
+
+  autoTable(doc, {
+    startY: 96,
+    head: [[
+      "رقم الفاتورة",
+      "التاريخ",
+      "نوع الحركة",
+      "المواد",
+      "العدد",
+      "العنوان",
+      "السائق",
+      "المبلغ",
+      "الرصيد التراكمي",
+    ]],
+    body: tableRows.map((row) => row.cells),
     styles: {
-      font: "Amiri", // استخدام خط يدعم العربية
       fontSize: 9,
-      halign: "center", // محاذاة النصوص في الوسط
-      cellPadding: 1, // تقليل المسافة داخل الخلايا
-    },
-    headStyles: {
       halign: "center",
       valign: "middle",
-      textColor: '#000000', // Set text color
-      fillColor: [211, 211, 211], // لون العنوان (اختياري)
+      cellPadding: 2.2,
+      overflow: "linebreak",
     },
+    headStyles: {
+      fillColor: [20, 55, 62],
+      textColor: 255,
+      halign: "center",
+    },
+    alternateRowStyles: {
+      fillColor: [249, 250, 251],
+    },
+    columnStyles: {
+      0: { cellWidth: 24 },
+      1: { cellWidth: 24 },
+      2: { cellWidth: 24 },
+      3: { cellWidth: 56 },
+      4: { cellWidth: 14 },
+      5: { cellWidth: 54 },
+      6: { cellWidth: 22 },
+      7: { cellWidth: 26 },
+      8: { cellWidth: 28 },
+    },
+    margin: { left: 12, right: 12, bottom: 16 },
+    didParseCell: (hookData) => {
+      arabicTableSupport.didParseCell?.(hookData);
 
-    tableWidth: "auto", // Use appropriate table width based on content
-    rtl: true, // Support right-to-left direction for Arabic text
+      if (hookData.section === "body" && hookData.column.index === 2) {
+        const tone = getTransactionTone(tableRows[hookData.row.index]?.rawType);
+
+        if (tone) {
+          Object.assign(hookData.cell.styles, tone);
+        }
+      }
+    },
   });
 
-  // Save the generated PDF
-  doc.save(`Delivery_Report_${affiliate}.pdf`);
+  doc.save(`wholesale-statement-${sanitizePdfFileName(customerName)}-${exportDate}.pdf`);
 };

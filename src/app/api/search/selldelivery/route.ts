@@ -10,6 +10,7 @@ import {
 export const dynamic = "force-dynamic";
 
 const CANCELED_STATUS = "\u0645\u0644\u063A\u0649";
+const WHOLESALE_FLAG = "y";
 
 export async function GET(request: Request) {
   try {
@@ -36,10 +37,11 @@ export async function GET(request: Request) {
             LEFT JOIN \`${dbName}\`.entrytable et ON st.RoomNum = et.id
             WHERE (sm.ClName LIKE ? OR sm.CellPhone LIKE ? OR sm.CellPhone1 LIKE ?)
               AND sm.por <> ?
+              AND LOWER(COALESCE(sm.wholesale, '')) != ?
             GROUP BY sm.id
             ORDER BY sm.ID DESC
           `,
-          [wildcardSearch, wildcardSearch, wildcardSearch, CANCELED_STATUS],
+          [wildcardSearch, wildcardSearch, wildcardSearch, CANCELED_STATUS, WHOLESALE_FLAG],
         );
       } else if (queryDate) {
         [rows] = await db.execute(
@@ -50,11 +52,11 @@ export async function GET(request: Request) {
             FROM \`${dbName}\`.sellmoney sm
             LEFT JOIN \`${dbName}\`.selltable st ON sm.invonum = st.invonum
             LEFT JOIN \`${dbName}\`.entrytable et ON st.RoomNum = et.id
-            WHERE DATE(sm.Provide) = ? AND sm.por <> ?
+            WHERE DATE(sm.Provide) = ? AND sm.por <> ? AND LOWER(COALESCE(sm.wholesale, '')) != ?
             GROUP BY sm.id
             ORDER BY sm.id DESC
           `,
-          [queryDate, CANCELED_STATUS],
+          [queryDate, CANCELED_STATUS, WHOLESALE_FLAG],
         );
       } else {
         rows = [{}];
