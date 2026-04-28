@@ -212,7 +212,7 @@ export default function FinancialProvidersPage() {
       }
 
       const { generateReportProviders } = await import("@/utils/generateReportProviders");
-      generateReportProviders(resultAll);
+      await generateReportProviders(resultAll);
     } catch (requestError) {
       console.error("Error generating report:", requestError);
       toast.error("تعذر إنشاء التقرير.");
@@ -221,8 +221,8 @@ export default function FinancialProvidersPage() {
 
   const handleQuickPrint = (provider) => {
     import("@/utils/generateReportProviders")
-      .then(({ generateReportProviders }) => {
-        generateReportProviders([
+      .then(async ({ generateReportProviders }) => {
+        await generateReportProviders([
           {
             Name: provider.Name,
             Inn: Number(provider.TotalIn ?? 0),

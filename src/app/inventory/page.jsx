@@ -296,7 +296,7 @@ function Inventory() {
       }
 
       const { generateReportinvAll } = await import("@/utils/generateReportinvAll");
-      generateReportinvAll(resultAll);
+      await generateReportinvAll(resultAll);
     } catch (error) {
       console.error("Error fetching items data:", error);
       toast.error("تعذر تحميل بيانات التقرير المخزني.");

@@ -124,7 +124,7 @@ export default function WholesaleCustomerPortal({ username, dbName }) {
 
     try {
       const { generateReportWs } = await import("@/utils/generateReportWs");
-      generateReportWs(data.items, data.affiliate.affiliate);
+      await generateReportWs(data.items, data.affiliate.affiliate);
       toast.success("تم تنزيل التقرير.");
     } catch (downloadError) {
       console.error("Error generating public wholesale report:", downloadError);

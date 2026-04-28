@@ -1,73 +1,103 @@
 import { jsPDF } from "jspdf";
-import "jspdf-autotable";
+import autoTable from "jspdf-autotable";
 import { format } from "date-fns";
 
-// Import the custom font (Amiri-Regular-normal.js should export a valid Base64 string for the font)
-import { font } from "../../public/Amiri-Regular-normal.js";
+import {
+  applyArabicTableSupport,
+  registerPdfArabicFont,
+  renderPdfKeyValueLine,
+  sanitizePdfFileName,
+  shapePdfText,
+} from "./pdfArabic";
 
-export const generateReportinvAll = (data) => {
-  const doc = new jsPDF({ orientation: "landscape", format: "a5" });
+const numberFormatter = new Intl.NumberFormat("en-US");
 
-  // Add custom Arabic font (Amiri-Regular)
-  doc.addFileToVFS("Amiri-Regular.ttf", font);
-  doc.addFont("Amiri-Regular.ttf", "Amiri", "normal");
-  doc.setFont("Amiri", "normal");
+function safeNumber(value) {
+  const parsed = Number(value ?? 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
 
-  // First Page: Title and Table
-  doc.setFontSize(20);
-  doc.text("تقرير الموجودات المخزنية ", 160, 15, { align: "center" });
-  doc.setFontSize(14);
+function safeText(value, fallback = "-") {
+  if (value === null || value === undefined) {
+    return fallback;
+  }
 
-  // Add the total to the report
-  doc.setFontSize(12);
-  const daty = format(new Date(), "yyyy-MM-dd");
-  doc.text(`التاريخ: ${daty}`, 30, 25, { align: "left" });
+  const normalized = String(value).trim();
+  return normalized || fallback;
+}
 
-  // Filter data to exclude rows where Total is 0 or less
-  const filteredData = data.filter((record) => record.Total > 0);
+export const generateReportinvAll = async (data) => {
+  const rows = Array.isArray(data) ? data.filter((record) => safeNumber(record?.Total) > 0) : [];
+  const exportDate = format(new Date(), "yyyy-MM-dd");
+  const totalAvailable = rows.reduce((sum, record) => sum + safeNumber(record?.RoomCounts), 0);
+  const totalPendingDelivery = rows.reduce((sum, record) => sum + safeNumber(record?.DelevCount), 0);
+  const totalReserved = rows.reduce((sum, record) => sum + safeNumber(record?.TotalSellCount), 0);
 
-  // Convert the filtered data into the table data format
-  const tableData = filteredData.map((record) => [
-    record.DelevCount,
-    record.Total,
-    record.TotalSellCount,
-    record.RoomCounts,
-    record.RoomName,
-    record.id,
-  ]);
+  const doc = new jsPDF({ orientation: "landscape", format: "a4", unit: "mm" });
+  const pageWidth = doc.internal.pageSize.getWidth();
 
-  // Add the main table
-  doc.autoTable({
-    head: [
-      ["المستلم", "المخزن", "غير مجهز", "المتاح", "المادة", "No."],
-    ],
-    body: tableData,
-    startY: 35,
-    styles: {
-      font: "Amiri",
-      fontSize: 8,
-      halign: "center",
-      cellPadding: 2,
-    },
-    headStyles: {
-      halign: "center",
-      valign: "middle",
-      textColor: '#000000',
-      fillColor: [211, 211, 211],
-    },
-    columnStyles: {
-      0: { cellWidth: 25 },
-      1: { cellWidth: 25 },
-      2: { cellWidth: 25 },
-      3: { cellWidth: 25 },
-      4: { cellWidth: 50 },
-      5: { cellWidth: 25 },
-    },
-    tableWidth: "auto",
-    rtl: true,
+  await registerPdfArabicFont(doc);
+
+  doc.setFillColor(20, 55, 62);
+  doc.roundedRect(12, 10, pageWidth - 24, 26, 4, 4, "F");
+  doc.setTextColor(255, 255, 255);
+  doc.setFontSize(18);
+  doc.text(shapePdfText(doc, "تقرير الموجودات المخزنية"), pageWidth / 2, 22, {
+    align: "center",
   });
 
-  // Save the generated PDF
-  doc.save(`Inventory_Report_${daty}.pdf`);
-};
+  doc.setTextColor(15, 23, 42);
+  doc.setFontSize(10);
+  renderPdfKeyValueLine(doc, pageWidth, 48, "تاريخ التصدير", exportDate);
+  renderPdfKeyValueLine(doc, pageWidth, 56, "عدد المواد", numberFormatter.format(rows.length));
+  renderPdfKeyValueLine(doc, pageWidth, 64, "المتوفر", numberFormatter.format(totalAvailable));
+  renderPdfKeyValueLine(doc, pageWidth, 72, "غير المجهز", numberFormatter.format(totalPendingDelivery));
+  renderPdfKeyValueLine(doc, pageWidth, 80, "المستلم", numberFormatter.format(totalReserved));
 
+  autoTable(doc, {
+    startY: 90,
+    head: [[
+      "الرقم",
+      "المادة",
+      "المتوفر",
+      "غير المجهز",
+      "المخزن",
+      "المستلم",
+    ]],
+    body: rows.map((record) => [
+      safeText(record?.id),
+      safeText(record?.RoomName),
+      numberFormatter.format(safeNumber(record?.RoomCounts)),
+      numberFormatter.format(safeNumber(record?.DelevCount)),
+      numberFormatter.format(safeNumber(record?.Total)),
+      numberFormatter.format(safeNumber(record?.TotalSellCount)),
+    ]),
+    styles: {
+      fontSize: 9,
+      halign: "center",
+      valign: "middle",
+      cellPadding: 2.3,
+      overflow: "linebreak",
+    },
+    headStyles: {
+      fillColor: [20, 55, 62],
+      textColor: 255,
+      halign: "center",
+    },
+    alternateRowStyles: {
+      fillColor: [249, 250, 251],
+    },
+    columnStyles: {
+      0: { cellWidth: 18 },
+      1: { cellWidth: 96 },
+      2: { cellWidth: 32 },
+      3: { cellWidth: 32 },
+      4: { cellWidth: 32 },
+      5: { cellWidth: 32 },
+    },
+    margin: { left: 12, right: 12, bottom: 16 },
+    ...applyArabicTableSupport(doc),
+  });
+
+  doc.save(`inventory-report-${sanitizePdfFileName(exportDate)}.pdf`);
+};
