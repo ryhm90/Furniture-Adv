@@ -1,6 +1,7 @@
+import { font as embeddedAmiriFont } from "../../public/Amiri-Regular-normal.js";
+
 const PDF_FONT_NAME = "AmiriPdf";
 const PDF_FONT_FILE_NAME = "Amiri-Regular.ttf";
-const PDF_FONT_URL = "/Amiri-Regular.ttf";
 const BIDI_CONTROL_REGEX = /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/g;
 const ARABIC_DIGIT_MAP = {
   "٠": "0",
@@ -25,21 +26,6 @@ const ARABIC_DIGIT_MAP = {
   "۹": "9",
 };
 
-let fontBase64Promise;
-
-function arrayBufferToBase64(buffer) {
-  const bytes = new Uint8Array(buffer);
-  const chunkSize = 0x8000;
-  let binary = "";
-
-  for (let index = 0; index < bytes.length; index += chunkSize) {
-    const chunk = bytes.subarray(index, index + chunkSize);
-    binary += String.fromCharCode(...chunk);
-  }
-
-  return btoa(binary);
-}
-
 function toDisplayValue(value, fallback = "-") {
   if (value === null || value === undefined) {
     return fallback;
@@ -49,25 +35,8 @@ function toDisplayValue(value, fallback = "-") {
   return normalized || fallback;
 }
 
-async function loadFontBase64() {
-  if (!fontBase64Promise) {
-    fontBase64Promise = fetch(PDF_FONT_URL, { cache: "force-cache" })
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error("تعذر تحميل خط التقرير.");
-        }
-
-        return response.arrayBuffer();
-      })
-      .then((buffer) => arrayBufferToBase64(buffer));
-  }
-
-  return fontBase64Promise;
-}
-
 export async function registerPdfArabicFont(doc) {
-  const fontBase64 = await loadFontBase64();
-  doc.addFileToVFS(PDF_FONT_FILE_NAME, fontBase64);
+  doc.addFileToVFS(PDF_FONT_FILE_NAME, embeddedAmiriFont);
   doc.addFont(PDF_FONT_FILE_NAME, PDF_FONT_NAME, "normal");
   doc.setFont(PDF_FONT_NAME, "normal");
   doc.setLanguage("ar");
