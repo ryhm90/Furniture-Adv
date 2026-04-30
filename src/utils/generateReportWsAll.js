@@ -6,6 +6,7 @@ import {
   applyArabicTableSupport,
   registerPdfArabicFont,
   renderPdfKeyValueLine,
+  repairMojibakeText,
   sanitizePdfFileName,
   shapePdfText,
 } from "./pdfArabic";
@@ -17,7 +18,7 @@ function safeText(value, fallback = "-") {
     return fallback;
   }
 
-  const normalized = String(value).trim();
+  const normalized = repairMojibakeText(String(value).trim());
   return normalized || fallback;
 }
 

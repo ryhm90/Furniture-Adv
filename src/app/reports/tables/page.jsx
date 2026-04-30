@@ -30,11 +30,13 @@ import {
 } from "@mui/material";
 import EmptyTableRow from "@/app/components/EmptyTableRow";
 import AppShell from "@/app/components/AppShell";
+import { repairMojibakeText } from "@/utils/pdfArabic";
 
 const ViewForm = dynamic(() => import("@/app/components/ViewForm"), { ssr: false });
 
 const FONT_FAMILY = "Alexandria, sans-serif";
 const numberFormatter = new Intl.NumberFormat("ar-IQ");
+const t = (value) => repairMojibakeText(value);
 const REPORT_LABELS = {
   sales: "تقرير المبيعات",
   delivery: "تقرير التجهيز",
@@ -212,13 +214,23 @@ export default function ReportsPage() {
   const [viewDialogOpen, setViewDialogOpen] = useState(false);
   const [invoiceLoadingId, setInvoiceLoadingId] = useState(null);
 
-  const cols = useMemo(() => columnMap[reportType] ?? [], [reportType]);
+  const cols = useMemo(
+    () =>
+      (columnMap[reportType] ?? []).map((col) => ({
+        ...col,
+        header: t(col.header),
+      })),
+    [reportType],
+  );
   const canShowInvoiceDetails = useMemo(
     () => cols.some((col) => ["Invonum", "InvoNum", "invonum"].includes(col.field)),
     [cols],
   );
   const reportLabel = REPORT_LABELS[reportType] ?? "جداول التقارير";
   const reportDescription = REPORT_DESCRIPTIONS[reportType] ?? "اختر نوع التقرير ثم حدّد الفلاتر المطلوبة.";
+
+  const safeReportLabel = t(reportLabel);
+  const safeReportDescription = t(reportDescription);
 
   const comparativeSummaryRows = useMemo(() => {
     const source = data[0] ?? {};
@@ -281,10 +293,12 @@ export default function ReportsPage() {
     return items;
   }, [filters, query, reportType]);
 
+  const safeFilterSummary = useMemo(() => filterSummary.map((item) => t(item)), [filterSummary]);
+
   const summaryRowsForExport = useMemo(() => (
     reportType === "comparative"
-      ? comparativeSummaryRows.map((row) => ({ label: row.label, value: nf(row.value) }))
-      : kpiCards
+      ? comparativeSummaryRows.map((row) => ({ label: t(row.label), value: nf(row.value) }))
+      : kpiCards.map((row) => ({ label: t(row.label), value: row.value }))
   ), [comparativeSummaryRows, kpiCards, reportType]);
 
   const hasResults = reportType === "comparative" ? comparativeSummaryRows.length > 0 : sortedRows.length > 0;
@@ -390,12 +404,12 @@ export default function ReportsPage() {
       const { exportTablesReportPdf } = await import("@/utils/exportTablesReportPdf");
       await exportTablesReportPdf({
         reportType,
-        reportLabel,
+        reportLabel: safeReportLabel,
         columns: cols,
         rows: reportType === "comparative" ? [] : sortedRows,
         summaryRows: summaryRowsForExport,
         totalsByField,
-        filterSummary,
+        filterSummary: safeFilterSummary,
       });
     } catch (exportError) {
       console.error(exportError);
@@ -468,7 +482,7 @@ export default function ReportsPage() {
                   <Select label="نوع التقرير" value={reportType} onChange={(event) => handleReportTypeChange(event.target.value)} sx={baseTextSx}>
                     {reportOptions.map((option) => (
                       <MenuItem key={option.value} value={option.value} sx={baseTextSx}>
-                        {option.label}
+                        {t(option.label)}
                       </MenuItem>
                     ))}
                   </Select>
@@ -478,9 +492,9 @@ export default function ReportsPage() {
                 <Card variant="outlined" sx={{ height: "100%", borderRadius: 2.5, bgcolor: "#f8fafc", borderColor: "rgba(148, 163, 184, 0.35)" }}>
                   <CardContent>
                     <Typography sx={{ fontFamily: FONT_FAMILY, fontWeight: 700, fontSize: "15px", mb: 1 }}>
-                      {reportLabel}
+                      {safeReportLabel}
                     </Typography>
-                    <Typography sx={{ ...baseTextSx, color: "text.secondary" }}>{reportDescription}</Typography>
+                    <Typography sx={{ ...baseTextSx, color: "text.secondary" }}>{safeReportDescription}</Typography>
                   </CardContent>
                 </Card>
               </Grid>
@@ -530,7 +544,7 @@ export default function ReportsPage() {
             {filterSummary.length > 0 && (
               <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 2.5 }}>
                 {filterSummary.map((item) => (
-                  <Chip key={item} label={item} variant="outlined" sx={{ fontFamily: FONT_FAMILY }} />
+                  <Chip key={item} label={t(item)} variant="outlined" sx={{ fontFamily: FONT_FAMILY }} />
                 ))}
               </Stack>
             )}
@@ -562,7 +576,7 @@ export default function ReportsPage() {
               <Grid item xs={12} sm={6} md={3} key={kpi.label}>
                 <Card sx={sectionCardSx} variant="outlined">
                   <CardContent>
-                    <Typography sx={{ ...baseTextSx, color: "text.secondary", mb: 1 }}>{kpi.label}</Typography>
+                    <Typography sx={{ ...baseTextSx, color: "text.secondary", mb: 1 }}>{t(kpi.label)}</Typography>
                     <Typography sx={{ fontFamily: FONT_FAMILY, fontSize: "24px", fontWeight: 700 }}>{kpi.value}</Typography>
                   </CardContent>
                 </Card>
@@ -597,7 +611,7 @@ export default function ReportsPage() {
                     <TableBody>
                       {comparativeSummaryRows.map((row) => (
                         <TableRow key={row.field}>
-                          <TableCell sx={tableCellSx}>{row.label}</TableCell>
+                          <TableCell sx={tableCellSx}>{t(row.label)}</TableCell>
                           <TableCell sx={tableCellSx}>{nf(row.value)}</TableCell>
                         </TableRow>
                       ))}
@@ -627,7 +641,7 @@ export default function ReportsPage() {
                               }}
                               sx={{ color: "white !important", fontFamily: FONT_FAMILY, fontWeight: 700, fontSize: "13px", "& .MuiTableSortLabel-icon": { color: "white !important" } }}
                             >
-                              {col.header}
+                              {t(col.header)}
                             </TableSortLabel>
                           </TableCell>
                         ))}

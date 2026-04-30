@@ -1,6 +1,7 @@
 import {
   applyArabicTableSupport,
   registerPdfArabicFont,
+  repairMojibakeText,
   renderPdfKeyValueLine,
   sanitizePdfFileName,
   shapePdfText,
@@ -13,15 +14,25 @@ function toDisplayValue(value) {
     return DASH_LABEL;
   }
 
-  return String(value);
+  return repairMojibakeText(String(value));
 }
 
 function formatFilterValueForPdf(label, value) {
-  if (label.trim() === "الفترة") {
-    return value.replace(/\s+إلى\s+/g, " - ");
+  const safeLabel = repairMojibakeText(label).trim();
+  const safeValue = repairMojibakeText(value);
+
+  if (safeLabel === "الفترة") {
+    return safeValue.replace(/\s+إلى\s+/g, " - ");
   }
 
-  return value;
+  return safeValue;
+}
+
+function normalizeColumns(columns) {
+  return columns.map((column) => ({
+    ...column,
+    header: repairMojibakeText(column.header),
+  }));
 }
 
 export async function exportTablesReportPdf({
@@ -43,9 +54,17 @@ export async function exportTablesReportPdf({
     autoTableModule.default ??
     autoTableModule.autoTable;
 
-  const isSummaryOnly = reportType === "comparative" || columns.length === 0;
+  const normalizedColumns = normalizeColumns(columns);
+  const normalizedReportLabel = repairMojibakeText(reportLabel);
+  const normalizedSummaryRows = summaryRows.map((row) => ({
+    label: toDisplayValue(row.label),
+    value: toDisplayValue(row.value),
+  }));
+  const normalizedFilterSummary = filterSummary.map((line) => repairMojibakeText(line));
+  const isSummaryOnly = reportType === "comparative" || normalizedColumns.length === 0;
+
   const doc = new jsPDF({
-    orientation: !isSummaryOnly && columns.length > 6 ? "landscape" : "portrait",
+    orientation: !isSummaryOnly && normalizedColumns.length > 6 ? "landscape" : "portrait",
     format: "a4",
   });
 
@@ -56,14 +75,14 @@ export async function exportTablesReportPdf({
   const arabicTableSupport = applyArabicTableSupport(doc);
 
   doc.setFontSize(18);
-  doc.text(shapePdfText(doc, reportLabel), pageWidth - 14, 18, { align: "right" });
+  doc.text(shapePdfText(doc, normalizedReportLabel), pageWidth - 14, 18, { align: "right" });
 
   doc.setFontSize(10);
   let currentY = 28;
   renderPdfKeyValueLine(doc, pageWidth, currentY, "تاريخ التصدير", exportDate);
   currentY += 6;
 
-  filterSummary.forEach((line) => {
+  normalizedFilterSummary.forEach((line) => {
     const separatorIndex = line.indexOf(":");
 
     if (separatorIndex !== -1) {
@@ -84,14 +103,11 @@ export async function exportTablesReportPdf({
     currentY += 6;
   });
 
-  if (summaryRows.length > 0) {
+  if (normalizedSummaryRows.length > 0) {
     autoTable(doc, {
       startY: currentY + 2,
       head: [["المؤشر", "القيمة"]],
-      body: summaryRows.map((row) => [
-        toDisplayValue(row.label),
-        toDisplayValue(row.value),
-      ]),
+      body: normalizedSummaryRows.map((row) => [row.label, row.value]),
       theme: "grid",
       margin: { right: 14, left: 14 },
       styles: {
@@ -111,31 +127,31 @@ export async function exportTablesReportPdf({
     currentY = (doc.lastAutoTable?.finalY ?? currentY) + 8;
   }
 
-  if (!isSummaryOnly && columns.length > 0) {
+  if (!isSummaryOnly && normalizedColumns.length > 0) {
     const footRows =
       Object.keys(totalsByField).length > 0
         ? [
-            columns.map((col, index) => {
+            normalizedColumns.map((column, index) => {
               if (index === 0) {
                 return "الإجمالي";
               }
 
-              if (totalsByField[col.field] === undefined) {
+              if (totalsByField[column.field] === undefined) {
                 return "";
               }
 
-              return toDisplayValue(totalsByField[col.field]);
+              return toDisplayValue(totalsByField[column.field]);
             }),
           ]
         : [];
 
     autoTable(doc, {
       startY: currentY,
-      head: [columns.map((col) => col.header)],
+      head: [normalizedColumns.map((column) => column.header)],
       body: rows.map((row) =>
-        columns.map((col) => {
-          const rawValue = row?.[col.field];
-          const displayValue = col.format ? col.format(rawValue) : rawValue;
+        normalizedColumns.map((column) => {
+          const rawValue = row?.[column.field];
+          const displayValue = column.format ? column.format(rawValue) : rawValue;
           return toDisplayValue(displayValue);
         }),
       ),
@@ -167,6 +183,6 @@ export async function exportTablesReportPdf({
   }
 
   doc.save(
-    `${sanitizePdfFileName(reportLabel)}-${sanitizePdfFileName(new Date().toISOString().slice(0, 10))}.pdf`,
+    `${sanitizePdfFileName(normalizedReportLabel)}-${sanitizePdfFileName(new Date().toISOString().slice(0, 10))}.pdf`,
   );
 }

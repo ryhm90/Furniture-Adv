@@ -6,6 +6,7 @@ import {
   applyArabicTableSupport,
   normalizePdfText,
   registerPdfArabicFont,
+  repairMojibakeText,
   renderPdfKeyValueLine,
   sanitizePdfFileName,
   shapePdfText,
@@ -16,6 +17,7 @@ const CANCELLED_STATUS = "ملغى";
 const REPORT_TITLE = "تقرير التجهيز";
 const UNASSIGNED_LABEL = "غير مسند";
 const DASH_LABEL = "-";
+const numberFormatter = new Intl.NumberFormat("en-US");
 const COMPANY_THEMES = [
   {
     primary: [18, 50, 50],
@@ -54,14 +56,12 @@ const COMPANY_THEMES = [
   },
 ];
 
-const numberFormatter = new Intl.NumberFormat("en-US");
-
-function safeString(value, fallback = DASH_LABEL) {
+function safeText(value, fallback = DASH_LABEL) {
   if (value === null || value === undefined) {
     return fallback;
   }
 
-  const normalized = String(value).trim();
+  const normalized = repairMojibakeText(String(value).trim());
   return normalized || fallback;
 }
 
@@ -80,7 +80,6 @@ function safeDateLabel(value, fallback = DASH_LABEL) {
   }
 
   const parsedDate = new Date(value);
-
   if (Number.isNaN(parsedDate.getTime())) {
     return fallback;
   }
@@ -88,10 +87,9 @@ function safeDateLabel(value, fallback = DASH_LABEL) {
   return format(parsedDate, "yyyy-MM-dd");
 }
 
-function formatTimeToAmPm(timeValue) {
-  const normalizedValue = safeString(timeValue, "");
-
-  if (!normalizedValue) {
+function formatTimeLabel(value) {
+  const normalizedValue = safeText(value, "");
+  if (!normalizedValue || normalizedValue === DASH_LABEL) {
     return DASH_LABEL;
   }
 
@@ -105,7 +103,6 @@ function formatTimeToAmPm(timeValue) {
 
   const date = new Date();
   date.setHours(parsedHours, parsedMinutes, 0, 0);
-
   return date.toLocaleTimeString("en-US", {
     hour: "numeric",
     minute: "2-digit",
@@ -113,16 +110,13 @@ function formatTimeToAmPm(timeValue) {
   });
 }
 
-function mergeUniqueText(currentValue, nextValue) {
-  const values = [...String(currentValue ?? "").split(","), ...String(nextValue ?? "").split(",")]
-    .map((item) => item.trim())
-    .filter(Boolean);
-
-  return [...new Set(values)].join("، ");
+function joinUnique(values, separator = "، ") {
+  const normalizedValues = values.map((item) => safeText(item, "")).filter(Boolean);
+  return [...new Set(normalizedValues)].join(separator) || DASH_LABEL;
 }
 
 function getCompanyTheme(pageName) {
-  const safePageName = safeString(pageName, "default");
+  const safePageName = safeText(pageName, "اسم غير محدد");
   let hash = 0;
 
   for (const character of safePageName) {
@@ -136,38 +130,33 @@ function normalizeDeliveryOrders(rows) {
   const map = new Map();
 
   rows.forEach((row) => {
-    const invoiceNumber = safeString(row?.InvoNum, "");
-
-    if (!invoiceNumber) {
+    const invoiceNumber = safeText(row?.InvoNum ?? row?.Invonum, "");
+    if (!invoiceNumber || invoiceNumber === DASH_LABEL) {
       return;
     }
 
+    const materialName = safeText(row?.RoomName || row?.RoomNames, "");
+    const materialCount = safeText(row?.countt, "0");
     const existing = map.get(invoiceNumber);
-    const materialName = safeString(row?.RoomName || row?.RoomNames, "");
-    const materialCount = safeString(row?.countt, "0");
 
     if (!existing) {
       map.set(invoiceNumber, {
         invoiceNumber,
-        clientName: safeString(row?.ClName),
-        phones:
-          [safeString(row?.CellPhone, ""), safeString(row?.CellPhone1, "")]
-            .filter(Boolean)
-            .join("، ") || DASH_LABEL,
-        address:
-          [safeString(row?.Provin, ""), safeString(row?.Provin2, "")]
-            .filter(Boolean)
-            .join(" - ") || DASH_LABEL,
-        driver: safeString(row?.Driver, UNASSIGNED_LABEL),
-        technician: safeString(row?.CarNam, UNASSIGNED_LABEL),
-        time: formatTimeToAmPm(row?.time),
-        status: safeString(row?.warehouseS),
-        receiptStatus: safeString(row?.Por),
+        clientName: safeText(row?.ClName),
+        phones: joinUnique([row?.CellPhone, row?.CellPhone1]),
+        address: [safeText(row?.Provin, ""), safeText(row?.Provin2, "")]
+          .filter(Boolean)
+          .join(" - ") || DASH_LABEL,
+        driver: safeText(row?.Driver, UNASSIGNED_LABEL),
+        technician: safeText(row?.CarNam, UNASSIGNED_LABEL),
+        time: formatTimeLabel(row?.time),
+        status: safeText(row?.warehouseS),
+        receiptStatus: safeText(row?.Por),
         provideDate: safeDateLabel(row?.Provide),
-        floor: safeString(row?.Floor),
+        floor: safeText(row?.Floor),
         floorCost: safeNumber(row?.FloorCost),
         moneyRemain: safeNumber(row?.MoneyRemain),
-        details: safeString(row?.details),
+        details: safeText(row?.details),
         materials: materialName ? [{ name: materialName, count: materialCount }] : [],
       });
       return;
@@ -182,9 +171,7 @@ function normalizeDeliveryOrders(rows) {
     ...order,
     materialSummary:
       order.materials.length > 0
-        ? order.materials
-            .map((item) => `${safeString(item.name)} × ${safeString(item.count, "0")}`)
-            .reduce((summary, current) => mergeUniqueText(summary, current), "")
+        ? joinUnique(order.materials.map((item) => `${safeText(item.name)} × ${safeText(item.count, "0")}`))
         : DASH_LABEL,
   }));
 }
@@ -193,8 +180,8 @@ function summarizeAssignments(orders, field) {
   const map = new Map();
 
   orders.forEach((order) => {
-    const name = safeString(order?.[field], UNASSIGNED_LABEL);
-    const existing = map.get(name) ?? {
+    const name = safeText(order?.[field], UNASSIGNED_LABEL);
+    const current = map.get(name) ?? {
       name,
       count: 0,
       ready: 0,
@@ -204,19 +191,19 @@ function summarizeAssignments(orders, field) {
       remaining: 0,
     };
 
-    existing.count += 1;
-    existing.floorCost += safeNumber(order.floorCost);
-    existing.remaining += safeNumber(order.moneyRemain);
+    current.count += 1;
+    current.floorCost += safeNumber(order.floorCost);
+    current.remaining += safeNumber(order.moneyRemain);
 
     if (order.receiptStatus === CANCELLED_STATUS) {
-      existing.cancelled += 1;
+      current.cancelled += 1;
     } else if (order.status === READY_STATUS) {
-      existing.ready += 1;
+      current.ready += 1;
     } else {
-      existing.pending += 1;
+      current.pending += 1;
     }
 
-    map.set(name, existing);
+    map.set(name, current);
   });
 
   return Array.from(map.values()).sort((left, right) => right.count - left.count);
@@ -224,21 +211,19 @@ function summarizeAssignments(orders, field) {
 
 function drawHeader(doc, { pageName, theme }) {
   const pageWidth = doc.internal.pageSize.getWidth();
-  const safePageName = safeString(pageName, "اسم غير محدد");
+  const branchName = safeText(pageName, "اسم غير محدد");
 
   doc.setFillColor(...theme.primary);
   doc.roundedRect(12, 10, pageWidth - 24, 34, 4, 4, "F");
 
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(20);
-  doc.text(shapePdfText(doc, REPORT_TITLE), pageWidth / 2, 23, { align: "center" });
+  doc.text(shapePdfText(doc, branchName), pageWidth / 2, 24, { align: "center" });
 
   doc.setFillColor(...theme.secondary);
-  doc.roundedRect(pageWidth - 112, 15, 94, 12, 3, 3, "F");
-  doc.setFontSize(16);
-  doc.text(shapePdfText(doc, safePageName), pageWidth - 65, 22.6, { align: "center",  });
-
-  doc.setFontSize(10);
+  doc.roundedRect(pageWidth - 114, 15, 96, 12, 3, 3, "F");
+  doc.setFontSize(11);
+  doc.text(shapePdfText(doc, REPORT_TITLE), pageWidth - 66, 22.5, { align: "center" });
 
   doc.setTextColor(15, 23, 42);
 }
@@ -255,22 +240,6 @@ function drawMetricCard(doc, { x, y, width, title, value, color }) {
   doc.text(shapePdfText(doc, title), x + width - 12, y + 8, { align: "right" });
   doc.setFontSize(13);
   doc.text(shapePdfText(doc, value), x + width - 12, y + 16, { align: "right" });
-}
-
-function addFooters(doc, selectedDate) {
-  const pageCount = doc.getNumberOfPages();
-  const pageWidth = doc.internal.pageSize.getWidth();
-
-  for (let index = 1; index <= pageCount; index += 1) {
-    doc.setPage(index);
-    doc.setDrawColor(226, 232, 240);
-    doc.line(12, 202, pageWidth - 12, 202);
-    doc.setFontSize(9);
-    doc.setTextColor(100, 116, 139);
-    doc.text(shapePdfText(doc, REPORT_TITLE), pageWidth - 14, 208, { align: "right" });
-    doc.text(normalizePdfText(selectedDate, DASH_LABEL), pageWidth / 2, 208, { align: "center" });
-    doc.text(`${index} / ${pageCount}`, 14, 208, { align: "left" });
-  }
 }
 
 function drawDetailRows(doc, rows, startY) {
@@ -292,26 +261,33 @@ function drawDetailRows(doc, rows, startY) {
   });
 }
 
+function addFooters(doc, selectedDate) {
+  const pageCount = doc.getNumberOfPages();
+  const pageWidth = doc.internal.pageSize.getWidth();
+
+  for (let index = 1; index <= pageCount; index += 1) {
+    doc.setPage(index);
+    doc.setDrawColor(226, 232, 240);
+    doc.line(12, 202, pageWidth - 12, 202);
+    doc.setFontSize(9);
+    doc.setTextColor(100, 116, 139);
+    doc.text(shapePdfText(doc, REPORT_TITLE), pageWidth - 14, 208, { align: "right" });
+    doc.text(normalizePdfText(selectedDate, DASH_LABEL), pageWidth / 2, 208, { align: "center" });
+    doc.text(`${index} / ${pageCount}`, 14, 208, { align: "left" });
+  }
+}
+
 export const generateReport = async (data, selectedDateOrOptions, pageNameArg) => {
   const options =
     typeof selectedDateOrOptions === "object" && selectedDateOrOptions !== null
       ? selectedDateOrOptions
-      : {
-          selectedDate: selectedDateOrOptions,
-          pageName: pageNameArg,
-        };
+      : { selectedDate: selectedDateOrOptions, pageName: pageNameArg };
 
-  const {
-    selectedDate = "",
-    pageName = "اسم غير محدد",
-  } = options;
-
+  const { selectedDate = "", pageName = "اسم غير محدد" } = options;
   const rows = Array.isArray(data) ? data : [];
   const orders = normalizeDeliveryOrders(rows);
   const driversSummary = summarizeAssignments(orders, "driver");
   const techniciansSummary = summarizeAssignments(orders, "technician");
-  const pageWidth = 297;
-
   const readyCount = orders.filter((order) => order.status === READY_STATUS).length;
   const cancelledCount = orders.filter((order) => order.receiptStatus === CANCELLED_STATUS).length;
   const pendingCount = orders.length - readyCount - cancelledCount;
@@ -320,46 +296,24 @@ export const generateReport = async (data, selectedDateOrOptions, pageNameArg) =
   const unassignedDrivers = orders.filter((order) => order.driver === UNASSIGNED_LABEL).length;
   const unassignedTechnicians = orders.filter((order) => order.technician === UNASSIGNED_LABEL).length;
   const theme = getCompanyTheme(pageName);
-
   const doc = new jsPDF({ orientation: "landscape", format: "a4", unit: "mm" });
+  const pageWidth = doc.internal.pageSize.getWidth();
+
   await registerPdfArabicFont(doc);
 
   drawHeader(doc, { pageName, theme });
 
   [
-    {
-      title: "إجمالي الوصولات",
-      value: numberFormatter.format(orders.length),
-      color: theme.primary,
-    },
-    {
-      title: "الوصولات الجاهزة",
-      value: numberFormatter.format(readyCount),
-      color: [22, 101, 52],
-    },
-    {
-      title: "الوصولات المعلقة",
-      value: numberFormatter.format(pendingCount),
-      color: [180, 83, 9],
-    },
-    {
-      title: "الوصولات الملغاة",
-      value: numberFormatter.format(cancelledCount),
-      color: [185, 28, 28],
-    },
-    {
-      title: "إجمالي التفريغ",
-      value: formatCurrency(totalFloorCost),
-      color: [29, 78, 216],
-    },
-    {
-      title: "إجمالي المتبقي",
-      value: formatCurrency(totalRemaining),
-      color: theme.secondary,
-    },
+    { title: "إجمالي الوصولات", value: numberFormatter.format(orders.length), color: theme.primary },
+    { title: "الوصولات الجاهزة", value: numberFormatter.format(readyCount), color: [22, 101, 52] },
+    { title: "الوصولات المعلقة", value: numberFormatter.format(pendingCount), color: [180, 83, 9] },
+    { title: "الوصولات الملغاة", value: numberFormatter.format(cancelledCount), color: [185, 28, 28] },
+    { title: "إجمالي التفريغ", value: formatCurrency(totalFloorCost), color: [29, 78, 216] },
+    { title: "إجمالي المتبقي", value: formatCurrency(totalRemaining), color: theme.secondary },
   ].forEach((metric, index) => {
     const row = Math.floor(index / 3);
     const column = index % 3;
+
     drawMetricCard(doc, {
       x: 18 + column * 88,
       y: 46 + row * 28,
@@ -370,31 +324,24 @@ export const generateReport = async (data, selectedDateOrOptions, pageNameArg) =
 
   drawDetailRows(
     doc,
-    [
-      [
-        { label: "وصولات غير مسندة لسائق", value: numberFormatter.format(unassignedDrivers) },
-        {
-          label: "وصولات غير مسندة لفني تركيب",
-          value: numberFormatter.format(unassignedTechnicians),
-        },
-      ],
-    ],
+    [[
+      { label: "وصولات غير مسندة لسائق", value: numberFormatter.format(unassignedDrivers) },
+      { label: "وصولات غير مسندة لفني تركيب", value: numberFormatter.format(unassignedTechnicians) },
+    ]],
     110,
   );
 
   doc.setFontSize(14);
-  doc.text(shapePdfText(doc, "ملخص التوزيع حسب السائق"), pageWidth - 14, 130, {
-    align: "right",
-  });
+  doc.text(shapePdfText(doc, "ملخص التوزيع حسب السائق"), pageWidth - 14, 130, { align: "right" });
 
   autoTable(doc, {
     startY: 134,
     head: [[
       "السائق",
       "الوصولات",
-      "جاهز",
-      "معلق",
-      "ملغى",
+      "جهزت",
+      "قيد الانتظار",
+      "ملغاة",
       "تكلفة التفريغ",
       "المتبقي",
     ]],
@@ -434,9 +381,9 @@ export const generateReport = async (data, selectedDateOrOptions, pageNameArg) =
     head: [[
       "فني التركيب",
       "الوصولات",
-      "جاهز",
-      "معلق",
-      "ملغى",
+      "جهزت",
+      "قيد الانتظار",
+      "ملغاة",
       "المتبقي",
     ]],
     body: techniciansSummary.map((item) => [
@@ -467,25 +414,25 @@ export const generateReport = async (data, selectedDateOrOptions, pageNameArg) =
     align: "right",
   });
 
-  const executiveArabicSupport = applyArabicTableSupport(doc);
-
   autoTable(doc, {
     startY: summaryStartY + 4,
     head: [[
+      "رقم الوصل",
       "الزبون",
       "أرقام الهاتف",
       "العنوان",
-        "المواد",
+      "المواد",
       "السائق",
       "فني التركيب",
       "التفريغ",
       "المتبقي",
     ]],
     body: orders.map((order) => [
+      order.invoiceNumber,
       order.clientName,
       order.phones,
       order.address,
-            order.materialSummary,
+      order.materialSummary,
       order.driver,
       order.technician,
       formatCurrency(order.floorCost),
@@ -503,19 +450,18 @@ export const generateReport = async (data, selectedDateOrOptions, pageNameArg) =
       halign: "center",
     },
     columnStyles: {
-      0: { cellWidth: 40 },
-      1: { cellWidth: 40 },
-      2: { cellWidth: 38 },
+      0: { cellWidth: 20 },
+      1: { cellWidth: 30 },
+      2: { cellWidth: 34 },
       3: { cellWidth: 38 },
-      4: { cellWidth: 38 },
-      5: { cellWidth: 26 },
+      4: { cellWidth: 52 },
+      5: { cellWidth: 28 },
       6: { cellWidth: 28 },
       7: { cellWidth: 22 },
+      8: { cellWidth: 22 },
     },
     margin: { left: 12, right: 12, bottom: 16 },
-    didParseCell: (hookData) => {
-      executiveArabicSupport.didParseCell?.(hookData);
-    },
+    ...applyArabicTableSupport(doc),
   });
 
   orders.forEach((order) => {
@@ -546,6 +492,7 @@ export const generateReport = async (data, selectedDateOrOptions, pageNameArg) =
         ],
         [
           { label: "الطابق", value: order.floor },
+          { label: "الوقت", value: order.time },
           { label: "حالة التجهيز", value: order.status },
         ],
       ],
@@ -557,7 +504,7 @@ export const generateReport = async (data, selectedDateOrOptions, pageNameArg) =
       head: [["المادة", "العدد"]],
       body:
         order.materials.length > 0
-          ? order.materials.map((item) => [item.name, item.count])
+          ? order.materials.map((item) => [safeText(item.name), safeText(item.count, "0")])
           : [[DASH_LABEL, DASH_LABEL]],
       styles: {
         fontSize: 12,
@@ -577,12 +524,10 @@ export const generateReport = async (data, selectedDateOrOptions, pageNameArg) =
 
     drawDetailRows(
       doc,
-      [
-        [
-          { label: "تكلفة التفريغ", value: formatCurrency(order.floorCost) },
-          { label: "المبلغ المتبقي", value: formatCurrency(order.moneyRemain) },
-        ],
-      ],
+      [[
+        { label: "تكلفة التفريغ", value: formatCurrency(order.floorCost) },
+        { label: "المبلغ المتبقي", value: formatCurrency(order.moneyRemain) },
+      ]],
       financialStartY,
     );
 

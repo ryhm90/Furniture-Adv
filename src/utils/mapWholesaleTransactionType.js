@@ -1,3 +1,5 @@
+import { repairMojibakeText } from "./pdfArabic";
+
 export const mapWholesaleTransactionType = (value) => {
   const normalizedValue = String(value ?? "").trim().toLowerCase();
 
@@ -17,5 +19,5 @@ export const mapWholesaleTransactionType = (value) => {
     return "تسديد";
   }
 
-  return String(value);
+  return repairMojibakeText(String(value));
 };

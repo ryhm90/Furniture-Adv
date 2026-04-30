@@ -6,6 +6,7 @@ import {
   applyArabicTableSupport,
   registerPdfArabicFont,
   renderPdfKeyValueLine,
+  repairMojibakeText,
   sanitizePdfFileName,
   shapePdfText,
 } from "./pdfArabic";
@@ -19,7 +20,7 @@ function safeText(value, fallback = DASH_LABEL) {
     return fallback;
   }
 
-  const normalized = String(value).trim();
+  const normalized = repairMojibakeText(String(value).trim());
   return normalized || fallback;
 }
 
@@ -38,7 +39,6 @@ function formatStatementDate(value) {
   }
 
   const parsedDate = new Date(value);
-
   if (Number.isNaN(parsedDate.getTime())) {
     return DASH_LABEL;
   }
@@ -97,7 +97,7 @@ export const generateReportWs = async (data, affiliate) => {
 
   const tableRows = rows.map((record) => {
     const amount = safeNumber(record?.MPU);
-    const typeLabel = mapWholesaleTransactionType(record?.De);
+    const typeLabel = safeText(mapWholesaleTransactionType(record?.De));
     cumulativeBalance += amount;
 
     if (typeLabel === "شراء") {
@@ -206,7 +206,6 @@ export const generateReportWs = async (data, affiliate) => {
 
       if (hookData.section === "body" && hookData.column.index === 2) {
         const tone = getTransactionTone(tableRows[hookData.row.index]?.rawType);
-
         if (tone) {
           Object.assign(hookData.cell.styles, tone);
         }
