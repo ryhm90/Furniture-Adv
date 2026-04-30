@@ -2,6 +2,7 @@
 
 import { FormEvent, useState } from "react";
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { signIn } from "next-auth/react";
 
 function getAuthErrorMessage(error: string | null) {
@@ -36,6 +37,7 @@ export default function LoginClient({
   callbackUrl,
   error,
 }: LoginClientProps) {
+  const router = useRouter();
   const searchError = getAuthErrorMessage(error);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -52,11 +54,16 @@ export default function LoginClient({
         email,
         password,
         callbackUrl,
-        redirect: true,
+        redirect: false,
       });
 
       if (response?.error) {
         setSubmitError(getAuthErrorMessage(response.error));
+        return;
+      }
+
+      if (response?.url) {
+        router.replace(response.url);
       }
     } catch (signInError) {
       console.error("Sign-in failed:", signInError);
@@ -69,7 +76,10 @@ export default function LoginClient({
   const errorMessage = submitError || searchError;
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-100 px-4" dir="rtl">
+    <div
+      className="flex min-h-screen items-center justify-center bg-slate-100 px-4"
+      dir="rtl"
+    >
       <div className="w-full max-w-md">
         <div className="rounded-2xl bg-white px-6 py-12 shadow-lg lg:px-8">
           <div className="mx-auto w-full max-w-sm">
@@ -84,7 +94,7 @@ export default function LoginClient({
             </div>
 
             <p className="mt-5 text-center text-sm text-gray-500 font-[Alexandria]">
-              نظام ادارة مبيعات الأثاث
+              نظام إدارة مبيعات الأثاث
             </p>
 
             <h1 className="mt-6 text-center text-2xl font-bold leading-9 tracking-tight text-gray-900 font-[Alexandria]">

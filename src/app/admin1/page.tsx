@@ -1,10 +1,9 @@
-import { getServerSession } from "next-auth";
 import React from "react";
 
-import { authOptions } from "@/lib/authOptions";
+import { auth } from "@/auth";
 
 const AdminPage = async () => {
-  const session = await getServerSession(authOptions);
+  const session = await auth();
   return (
     <div>
       This is admin dashboard

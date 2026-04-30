@@ -193,6 +193,7 @@ export function applyArabicTableSupport(doc) {
     didParseCell: ({ cell }) => {
       cell.text = cell.text.map((text) => shapePdfText(doc, text));
       cell.styles.font = PDF_FONT_NAME;
+      cell.styles.fontStyle = "normal";
     },
   };
 }

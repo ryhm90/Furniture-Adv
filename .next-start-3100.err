@@ -1,0 +1,17 @@
+[31m[auth][error][0m UntrustedHost: Host must be trusted. URL was: http://localhost:3000/api/auth/session. Read more at https://errors.authjs.dev#untrustedhost
+    at D:\Next.Js\Furniture-Advanced\.next\server\chunks\2888.js:404:51445
+    at fI (D:\Next.Js\Furniture-Advanced\.next\server\chunks\2888.js:404:54113)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[31m[auth][error][0m UntrustedHost: Host must be trusted. URL was: http://localhost:3000/api/auth/session. Read more at https://errors.authjs.dev#untrustedhost
+    at D:\Next.Js\Furniture-Advanced\.next\server\middleware.js:418:51456
+    at fX (D:\Next.Js\Furniture-Advanced\.next\server\middleware.js:418:54139)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[31m[auth][error][0m UntrustedHost: Host must be trusted. URL was: http://localhost:3000/api/auth/session. Read more at https://errors.authjs.dev#untrustedhost
+    at D:\Next.Js\Furniture-Advanced\.next\server\middleware.js:418:51456
+    at fX (D:\Next.Js\Furniture-Advanced\.next\server\middleware.js:418:54139)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+[31m[auth][error][0m UntrustedHost: Host must be trusted. URL was: http://localhost:3000/api/auth/session. Read more at https://errors.authjs.dev#untrustedhost
+    at D:\Next.Js\Furniture-Advanced\.next\server\chunks\2888.js:404:51445
+    at fI (D:\Next.Js\Furniture-Advanced\.next\server\chunks\2888.js:404:54113)
+    at process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    at async rB.do (D:\Next.Js\Furniture-Advanced\node_modules\next\dist\compiled\next-server\app-route.runtime.prod.js:5:20926)

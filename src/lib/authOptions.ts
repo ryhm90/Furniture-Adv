@@ -1,4 +1,4 @@
-import type { AuthOptions } from "next-auth";
+import type { NextAuthConfig } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import { z } from "zod";
 
@@ -12,7 +12,8 @@ const signInSchema = z.object({
   password: z.string().min(6),
 });
 
-export const authOptions: AuthOptions = {
+export const authConfig = {
+  trustHost: true,
   session: {
     strategy: "jwt",
   },
@@ -72,9 +73,9 @@ export const authOptions: AuthOptions = {
         session.user.id = token.id as string;
         session.user.email = token.email as string;
         session.user.name = token.name as string;
-        session.user.role = (token.role as string | undefined) ?? null;
-        session.user.database = (token.database as string | undefined) ?? null;
-        session.user.pageName = (token.pageName as string | undefined) ?? null;
+        session.user.role = (token.role as string | undefined) ?? undefined;
+        session.user.database = (token.database as string | undefined) ?? undefined;
+        session.user.pageName = (token.pageName as string | undefined) ?? undefined;
       }
 
       return session;
@@ -91,4 +92,4 @@ export const authOptions: AuthOptions = {
     signIn: "/login",
   },
   secret: process.env.NEXTAUTH_SECRET ?? process.env.AUTH_SECRET,
-};
+} satisfies NextAuthConfig;

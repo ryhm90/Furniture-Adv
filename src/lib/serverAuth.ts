@@ -1,8 +1,7 @@
 import type { Session } from "next-auth";
-import { getServerSession } from "next-auth";
 import { NextResponse } from "next/server";
 
-import { authOptions } from "@/lib/authOptions";
+import { auth } from "@/auth";
 
 export type SessionWithUser = Session & {
   user: NonNullable<Session["user"]>;
@@ -26,7 +25,7 @@ export function hasRole(role: string | null | undefined, allowedRoles: string[])
 }
 
 export async function requireSession(): Promise<SessionWithUser> {
-  const session = await getServerSession(authOptions);
+  const session = await auth();
 
   if (!session?.user) {
     throw new AuthorizationError(401, "Unauthorized");
