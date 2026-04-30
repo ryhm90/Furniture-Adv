@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import {
-  Autocomplete,
   Button,
   Dialog,
   DialogActions,
@@ -8,6 +7,7 @@ import {
   DialogTitle,
   Divider,
   MenuItem,
+  Stack,
   TextField,
   Typography,
 } from "@mui/material";
@@ -15,7 +15,6 @@ import axios from "axios";
 import { toast } from "react-toastify";
 
 import useSubmissionState from "@/app/components/useSubmissionState";
-import { workerTypeOptions } from "@/app/components/furnitureOptions";
 
 const titleSx = {
   borderRadius: "4px",
@@ -69,6 +68,7 @@ function formatWithCommas(value) {
   }
 
   const numericValue = String(value).replace(/,/g, "");
+
   if (!numericValue || Number.isNaN(Number(numericValue))) {
     return "";
   }
@@ -76,21 +76,22 @@ function formatWithCommas(value) {
   return Number(numericValue).toLocaleString("en-US");
 }
 
-function PaymentForm({ open, onClose, moneyRemaina: _moneyRemaina, inv, onSave: _onSave }) {
+function PaymentForm({ open, onClose, moneyRemaina: _moneyRemaina, inv, onSave }) {
   const [moneyPaid, setMoneyPaid] = useState("");
-  const [workerType, setWorkerType] = useState("");
-  const [workerName, setWorkerName] = useState("");
-  const [wage, setWage] = useState("");
   const [moneyRemain, setMoneyRemain] = useState(0);
   const [driverflag, setDriverflag] = useState("");
   const [carflag, setCarflag] = useState("");
-  const [ulaodflag, setUlaodflag] = useState("");
-  const [carpenterNames, setCarpenterNames] = useState([]);
   const [driverNames, setDriverNames] = useState([]);
+  const [carpenterNames, setCarpenterNames] = useState([]);
   const [invoNum, setInvo] = useState("");
   const [clientName, setClientName] = useState("");
+  const [registeredDriver, setRegisteredDriver] = useState("");
+  const [registeredCarpenter, setRegisteredCarpenter] = useState("");
+  const [driverWage, setDriverWage] = useState("");
+  const [carpenterWage, setCarpenterWage] = useState("");
   const [isSubmittingPayment, runPaymentSubmission] = useSubmissionState();
-  const [isSubmittingWage, runWageSubmission] = useSubmissionState();
+  const [isSubmittingDriverWage, runDriverWageSubmission] = useSubmissionState();
+  const [isSubmittingCarpenterWage, runCarpenterWageSubmission] = useSubmissionState();
 
   useEffect(() => {
     if (!inv) {
@@ -98,22 +99,15 @@ function PaymentForm({ open, onClose, moneyRemaina: _moneyRemaina, inv, onSave: 
     }
 
     setMoneyRemain(inv.MoneyRemain ?? 0);
-    setWorkerType(inv.WorkerType || "");
-    setWorkerName(inv.WorkerName || "");
     setDriverflag(inv.Driverflag || "");
     setCarflag(inv.Carflag || "");
-    setUlaodflag(inv.Ulaodflag || "");
-    setInvo(inv.InvoNum);
+    setInvo(inv.InvoNum || "");
     setClientName(inv.ClName || "");
+    setRegisteredDriver(inv.Driver || "");
+    setRegisteredCarpenter(inv.CarNam || "");
+    setDriverWage("");
+    setCarpenterWage("");
   }, [inv]);
-
-  useEffect(() => {
-    if (workerType === "السائق" && driverflag === "Paid") {
-      setWage("");
-    } else if (workerType === "فني التركيب" && carflag === "Paid") {
-      setWage("");
-    }
-  }, [workerType, driverflag, carflag]);
 
   useEffect(() => {
     if (!open) {
@@ -135,15 +129,25 @@ function PaymentForm({ open, onClose, moneyRemaina: _moneyRemaina, inv, onSave: 
 
   const handleMoneyPaidChange = (event) => {
     const value = event.target.value.replace(/,/g, "");
+
     if (!Number.isNaN(Number(value)) || value === "") {
       setMoneyPaid(value === "" ? "" : formatWithCommas(value));
     }
   };
 
-  const handleWageChange = (event) => {
+  const handleDriverWageChange = (event) => {
     const value = event.target.value.replace(/,/g, "");
+
     if (!Number.isNaN(Number(value)) || value === "") {
-      setWage(value === "" ? "" : formatWithCommas(value));
+      setDriverWage(value === "" ? "" : formatWithCommas(value));
+    }
+  };
+
+  const handleCarpenterWageChange = (event) => {
+    const value = event.target.value.replace(/,/g, "");
+
+    if (!Number.isNaN(Number(value)) || value === "") {
+      setCarpenterWage(value === "" ? "" : formatWithCommas(value));
     }
   };
 
@@ -161,9 +165,11 @@ function PaymentForm({ open, onClose, moneyRemaina: _moneyRemaina, inv, onSave: 
           toast.success("تم تسديد المبلغ بنجاح.");
           setMoneyRemain(response.data.updatedMoneyRemain?.toString() ?? "0");
           setMoneyPaid("");
-        } else {
-          toast.error("تعذر تسديد المبلغ.");
+          onSave?.(response.data);
+          return;
         }
+
+        toast.error("تعذر تسديد المبلغ.");
       } catch (error) {
         console.error("Payment submission failed:", error);
         toast.error("تعذر تسديد المبلغ.");
@@ -171,88 +177,76 @@ function PaymentForm({ open, onClose, moneyRemaina: _moneyRemaina, inv, onSave: 
     });
   };
 
-  const handleSubmitWage = async () => {
-    await runWageSubmission(async () => {
+  const submitServiceWage = async ({
+    workerName,
+    wageValue,
+    type,
+    flagKey,
+    setPaidFlag,
+    clearWage,
+    runSubmission,
+  }) => {
+    await runSubmission(async () => {
       try {
-        const strippedWage = String(toNumber(wage));
-        let updateData = {};
-        let insertData = {};
+        const strippedWage = String(toNumber(wageValue));
 
-        if (workerType === "فني التركيب") {
-          updateData = {
-            workerName,
-            carflag: "Paid",
-            invoNum,
-          };
-          insertData = {
-            details: invoNum,
-            moneyPaid: strippedWage,
-            type: "Carpenter",
-            workerName,
-          };
-          setCarflag("Paid");
-        } else if (workerType === "السائق") {
-          updateData = {
-            workerName,
-            driverflag: "Paid",
-            invoNum,
-          };
-          insertData = {
-            details: invoNum,
-            moneyPaid: strippedWage,
-            type: "Driver",
-            workerName,
-          };
-          setDriverflag("Paid");
-        } else if (workerType === "المفرغ") {
-          updateData = {
-            workerName,
-            ulaodflag: "Paid",
-            invoNum,
-          };
-          insertData = {
-            details: invoNum,
-            moneyPaid: strippedWage,
-            type: "Unloading",
-            workerName,
-          };
-          setUlaodflag("Paid");
-        }
+        const updateData =
+          type === "Driver"
+            ? {
+                workerName,
+                driverflag: "Paid",
+                invoNum,
+              }
+            : {
+                workerName,
+                carflag: "Paid",
+                invoNum,
+              };
+
+        const insertData = {
+          details: invoNum,
+          moneyPaid: strippedWage,
+          type,
+          workerName,
+        };
 
         const updateResponse = await axios.post("/api/sellmoney/update", updateData);
+
         if (updateResponse.status !== 200) {
-          toast.error("تعذر تسديد أجور العامل.");
+          toast.error("تعذر تسديد أجور الخدمة.");
           return;
         }
 
         const insertResponse = await axios.post("/api/safeboxiqd/insert", insertData);
+
         if (insertResponse.status === 200) {
-          toast.success("تم تسديد أجور العامل بنجاح.");
-          setWorkerName("");
-          setWage("");
-          setWorkerType("");
-          setMoneyPaid("");
-        } else {
-          toast.error("تعذر تسديد أجور العامل.");
+          setPaidFlag("Paid");
+          clearWage("");
+          toast.success(
+            flagKey === "driver" ? "تم تسديد أجور السائق بنجاح." : "تم تسديد أجور فني التركيب بنجاح.",
+          );
+          return;
         }
+
+        toast.error("تعذر تسديد أجور الخدمة.");
       } catch (error) {
-        console.error("Wage submission failed:", error);
-        toast.error("تعذر تسديد أجور العامل.");
+        console.error("Service wage submission failed:", error);
+        toast.error("تعذر تسديد أجور الخدمة.");
       }
     });
   };
 
   const resetForm = () => {
     setMoneyPaid("");
-    setWorkerType("");
-    setWorkerName("");
-    setWage("");
     setMoneyRemain(0);
     setDriverflag("");
     setCarflag("");
-    setUlaodflag("");
     setInvo("");
     setClientName("");
+    setRegisteredDriver("");
+    setRegisteredCarpenter("");
+    setDriverWage("");
+    setCarpenterWage("");
   };
 
   const handleClose = () => {
@@ -265,11 +259,8 @@ function PaymentForm({ open, onClose, moneyRemaina: _moneyRemaina, inv, onSave: 
     toNumber(moneyRemain) === 0 ||
     moneyPaid === "";
 
-  const isWorkerNameDisabled =
-    workerName === "" ||
-    (workerType === "السائق" && driverflag === "Paid") ||
-    (workerType === "فني التركيب" && carflag === "Paid") ||
-    (workerType === "المفرغ" && ulaodflag === "Paid");
+  const isDriverPaid = driverflag === "Paid";
+  const isCarpenterPaid = carflag === "Paid";
 
   return (
     <Dialog open={open} onClose={handleClose} maxWidth="sm" fullWidth>
@@ -313,80 +304,112 @@ function PaymentForm({ open, onClose, moneyRemaina: _moneyRemaina, inv, onSave: 
           تفاصيل دفع الخدمات
         </Typography>
 
-        <TextField
-          select
-          label="نوع الخدمة"
-          value={workerType}
-          onChange={(event) => setWorkerType(event.target.value)}
-          fullWidth
-          margin="normal"
-          variant="filled"
-          sx={fieldSx}
-        >
-          {workerTypeOptions.map((type) => (
-            <MenuItem key={type} value={type}>
-              {type}
-            </MenuItem>
-          ))}
-        </TextField>
-
-        <Autocomplete
-          options={workerType === "السائق" || workerType === "المفرغ" ? driverNames : carpenterNames}
-          ListboxProps={{
-            sx: {
-              direction: "rtl",
-              fontFamily: "Alexandria, sans-serif",
-              fontSize: "14px",
-            },
-          }}
-          value={workerName}
-          onChange={(_event, newValue) => setWorkerName(newValue || "")}
-          renderInput={(params) => (
+        <Stack spacing={2} sx={{ mt: 1 }}>
+          <Stack spacing={1}>
             <TextField
-              {...params}
-              label="الاسم"
-              margin="normal"
+              select
+              label="السائق المسجل"
+              value={registeredDriver}
+              onChange={(event) => setRegisteredDriver(event.target.value)}
               fullWidth
-              disabled={isWorkerNameDisabled}
               variant="filled"
-              sx={{
-                "& input": {
-                  fontFamily: "Alexandria, sans-serif",
-                  fontWeight: 400,
-                  fontSize: "14px",
-                  direction: "rtl",
-                },
-                "& label": {
-                  fontFamily: "Alexandria, sans-serif",
-                  fontWeight: 400,
-                  fontSize: "13px",
-                  direction: "rtl",
-                },
-              }}
+              sx={fieldSx}
+              disabled={isDriverPaid}
+            >
+              {driverNames.map((driverName) => (
+                <MenuItem key={driverName} value={driverName}>
+                  {driverName}
+                </MenuItem>
+              ))}
+            </TextField>
+
+            <TextField
+              label="مبلغ السائق"
+              value={driverWage}
+              onChange={handleDriverWageChange}
+              fullWidth
+              variant="filled"
+              sx={fieldSx}
+              disabled={isDriverPaid}
             />
-          )}
-          fullWidth
-        />
 
-        <TextField
-          label="المبلغ"
-          value={wage}
-          onChange={handleWageChange}
-          fullWidth
-          margin="normal"
-          variant="filled"
-          sx={fieldSx}
-        />
+            <Button
+              onClick={() =>
+                submitServiceWage({
+                  workerName: registeredDriver,
+                  wageValue: driverWage,
+                  type: "Driver",
+                  flagKey: "driver",
+                  setPaidFlag: setDriverflag,
+                  clearWage: setDriverWage,
+                  runSubmission: runDriverWageSubmission,
+                })
+              }
+              variant="contained"
+              fullWidth
+              sx={actionButtonSx}
+              disabled={!registeredDriver || !driverWage || isDriverPaid || isSubmittingDriverWage}
+            >
+              {isSubmittingDriverWage ? "جاري الحفظ..." : "دفع أجور السائق"}
+            </Button>
+          </Stack>
 
-        <Button
-          onClick={handleSubmitWage}
-          variant="contained"
-          fullWidth
-          sx={actionButtonSx}
-          disabled={isWorkerNameDisabled || !wage || !workerName || isSubmittingWage}
-        >
-          {isSubmittingWage ? "جاري الحفظ..." : "دفع الخدمة"}
-        </Button>
+          <Divider />
+
+          <Stack spacing={1}>
+            <TextField
+              select
+              label="فني التركيب المسجل"
+              value={registeredCarpenter}
+              onChange={(event) => setRegisteredCarpenter(event.target.value)}
+              fullWidth
+              variant="filled"
+              sx={fieldSx}
+              disabled={isCarpenterPaid}
+            >
+              {carpenterNames.map((carpenterName) => (
+                <MenuItem key={carpenterName} value={carpenterName}>
+                  {carpenterName}
+                </MenuItem>
+              ))}
+            </TextField>
+
+            <TextField
+              label="مبلغ فني التركيب"
+              value={carpenterWage}
+              onChange={handleCarpenterWageChange}
+              fullWidth
+              variant="filled"
+              sx={fieldSx}
+              disabled={isCarpenterPaid}
+            />
+
+            <Button
+              onClick={() =>
+                submitServiceWage({
+                  workerName: registeredCarpenter,
+                  wageValue: carpenterWage,
+                  type: "Carpenter",
+                  flagKey: "carpenter",
+                  setPaidFlag: setCarflag,
+                  clearWage: setCarpenterWage,
+                  runSubmission: runCarpenterWageSubmission,
+                })
+              }
+              variant="contained"
+              fullWidth
+              sx={actionButtonSx}
+              disabled={
+                !registeredCarpenter ||
+                !carpenterWage ||
+                isCarpenterPaid ||
+                isSubmittingCarpenterWage
+              }
+            >
+              {isSubmittingCarpenterWage ? "جاري الحفظ..." : "دفع أجور فني التركيب"}
+            </Button>
+          </Stack>
+        </Stack>
       </DialogContent>
       <DialogActions>
         <Button

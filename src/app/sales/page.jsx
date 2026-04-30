@@ -43,6 +43,9 @@ const ConfirmDialog = dynamic(() => import("../components/ConfirmDialog"), {
 const SalesResultsTable = dynamic(() => import("./SalesResultsTable"), {
   ssr: false,
 });
+const DriverBulkPaymentDialog = dynamic(() => import("./DriverBulkPaymentDialog"), {
+  ssr: false,
+});
 const SalesTelegramInboxPanel = dynamic(() => import("./SalesTelegramInboxPanel"), {
   ssr: false,
 });
@@ -174,6 +177,9 @@ function Sales() {
   const [viewDialogOpen, setviewDialogOpen] = useState(false);
   const [driverNames, setDriverNames] = useState([]);
   const [selectedDriver, setSelectedDriver] = useState("");
+  const [driverBulkDialogOpen, setDriverBulkDialogOpen] = useState(false);
+  const [driverBulkInvoices, setDriverBulkInvoices] = useState([]);
+  const [driverBulkLoading, setDriverBulkLoading] = useState(false);
   const [telegramRequests, setTelegramRequests] = useState([]);
   const [telegramSummary, setTelegramSummary] = useState({
     all: 0,
@@ -228,6 +234,33 @@ function Sales() {
     }
   }, [telegramStatusFilter]);
 
+  const fetchDriverBulkInvoices = useCallback(async (driverName) => {
+    if (!driverName || driverName === "Null") {
+      setDriverBulkInvoices([]);
+      return [];
+    }
+
+    setDriverBulkLoading(true);
+
+    try {
+      const response = await axios.get("/api/sellmoney/driver-payments", {
+        params: { driver: driverName },
+        cache: "no-store",
+      });
+
+      const rows = Array.isArray(response.data) ? response.data : [];
+      setDriverBulkInvoices(rows);
+      return rows;
+    } catch (error) {
+      console.error("Error fetching driver bulk payment invoices:", error);
+      toast.error("تعذر تحميل وصولات السائق الخاصة بالتسديد.");
+      setDriverBulkInvoices([]);
+      return [];
+    } finally {
+      setDriverBulkLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!formOpen) {
       return;
@@ -243,6 +276,15 @@ function Sales() {
 
     fetchTelegramRequests();
   }, [fetchTelegramRequests, session?.user?.role]);
+
+  useEffect(() => {
+    if (selectedDriver && selectedDriver !== "Null") {
+      return;
+    }
+
+    setDriverBulkDialogOpen(false);
+    setDriverBulkInvoices([]);
+  }, [selectedDriver]);
 
   const selectedTelegramRequest = useMemo(
     () => telegramRequests.find((item) => item.id === selectedTelegramRequestId) ?? null,
@@ -352,14 +394,45 @@ function Sales() {
     setPaymentDialogOpen(true);
   };
 
+  const handleOpenDriverBulkPaymentDialog = async () => {
+    if (!selectedDriver || selectedDriver === "Null") {
+      toast.info("اختر سائقاً محدداً أولاً.");
+      return;
+    }
+
+    setDriverBulkDialogOpen(true);
+    await fetchDriverBulkInvoices(selectedDriver);
+  };
+
   const handleViewIconClick = (invoice) => {
     setSelectedviewInvoice(invoice);
     setviewDialogOpen(true);
   };
 
-  const handleSavePayment = () => {
+  const handleSavePayment = async () => {
     setSelectedInvoice(null);
     setPaymentDialogOpen(false);
+
+    if (hasSearched) {
+      await handleSearchClick();
+    }
+
+    if (driverBulkDialogOpen && selectedDriver && selectedDriver !== "Null") {
+      await fetchDriverBulkInvoices(selectedDriver);
+    }
+  };
+
+  const handleClosePaymentDialog = async () => {
+    setSelectedInvoice(null);
+    setPaymentDialogOpen(false);
+
+    if (hasSearched) {
+      await handleSearchClick();
+    }
+
+    if (driverBulkDialogOpen && selectedDriver && selectedDriver !== "Null") {
+      await fetchDriverBulkInvoices(selectedDriver);
+    }
   };
 
   const handleOpenSalesForm = async () => {
@@ -408,6 +481,10 @@ function Sales() {
     if (hasSearched) {
       await handleSearchClick();
     }
+
+    if (driverBulkDialogOpen && selectedDriver && selectedDriver !== "Null") {
+      await fetchDriverBulkInvoices(selectedDriver);
+    }
   };
 
   return (
@@ -454,13 +531,21 @@ function Sales() {
       {paymentDialogOpen && selectedInvoice ? (
         <PaymentForm
           open={paymentDialogOpen}
-          onClose={() => {
-            setPaymentDialogOpen(false);
-            handleSearchClick();
-          }}
+          onClose={handleClosePaymentDialog}
           moneyRemain={selectedInvoice?.MoneyRemain}
           inv={selectedInvoice}
           onSave={handleSavePayment}
+        />
+      ) : null}
+
+      {driverBulkDialogOpen ? (
+        <DriverBulkPaymentDialog
+          open={driverBulkDialogOpen}
+          driverName={selectedDriver === "Null" ? "" : selectedDriver}
+          rows={driverBulkInvoices}
+          isLoading={driverBulkLoading}
+          onClose={() => setDriverBulkDialogOpen(false)}
+          onPayment={handleOpenPaymentDialog}
         />
       ) : null}
 
@@ -771,6 +856,20 @@ function Sales() {
                   </Stack>
                 </Grid>
               </Grid>
+
+              {selectedDriver && selectedDriver !== "Null" ? (
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={1.2}>
+                  <Button
+                    variant="outlined"
+                    startIcon={<AttachMoneyOutlinedIcon />}
+                    onClick={handleOpenDriverBulkPaymentDialog}
+                    sx={secondaryActionSx}
+                    disabled={driverBulkLoading}
+                  >
+                    {driverBulkLoading ? "جاري تحميل الوصولات..." : "تسديد جماعي حسب السائق"}
+                  </Button>
+                </Stack>
+              ) : null}
 
               <Alert
                 severity={hasSearched ? "success" : "info"}
