@@ -57,7 +57,6 @@ function getTransactionTone(typeLabel) {
     return {
       fillColor: [220, 252, 231],
       textColor: [22, 101, 52],
-      fontStyle: "bold",
     };
   }
 
@@ -65,7 +64,6 @@ function getTransactionTone(typeLabel) {
     return {
       fillColor: [219, 234, 254],
       textColor: [30, 64, 175],
-      fontStyle: "bold",
     };
   }
 
@@ -73,7 +71,6 @@ function getTransactionTone(typeLabel) {
     return {
       fillColor: [254, 226, 226],
       textColor: [185, 28, 28],
-      fontStyle: "bold",
     };
   }
 
