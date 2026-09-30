@@ -223,6 +223,8 @@ function DeliveryResultsTable({
   onCarpenterChange,
   onTimeChange,
   showProvideColumn,
+  showPaymentColumns = false,
+  disabled = false,
 }) {
   const [sortBy, setSortBy] = useState("InvoNum");
   const [sortDirection, setSortDirection] = useState("desc");
@@ -271,7 +273,7 @@ function DeliveryResultsTable({
         boxShadow: "0 16px 36px rgba(15, 23, 42, 0.05)",
       }}
     >
-      <TableContainer style={{ maxHeight: 560, overflowX: "auto" }}>
+      <TableContainer inert={disabled ? true : undefined} style={{ maxHeight: 560, overflowX: "auto" }}>
         <Table stickyHeader aria-label="delivery table">
           <TableHead>
             <TableRow>
@@ -355,8 +357,11 @@ function DeliveryResultsTable({
                 />
               ) : null}
               <TableCell align="center" style={{ minWidth: 150, ...tableHeaderStyle }}>
-                الإجراءات
+                {showPaymentColumns ? "المتبقي / أجور السائق" : "الإجراءات"}
               </TableCell>
+              {showPaymentColumns ? <TableCell align="center" style={{ minWidth: 150, ...tableHeaderStyle }}>
+                الإجراءات
+              </TableCell> : null}
             </TableRow>
           </TableHead>
           <TableBody>
@@ -466,6 +471,10 @@ function DeliveryResultsTable({
                       {formatDate(row.Provide)}
                     </TableCell>
                   ) : null}
+                  {showPaymentColumns ? <TableCell style={tableCellStyle} align="center">
+                    {Number(row.MoneyRemain || 0).toLocaleString("ar-IQ")} د.ع
+                    <Chip size="small" label={row.Driverflag === "Paid" ? "أجور السائق مصروفة" : "أجور السائق غير مصروفة"} color={row.Driverflag === "Paid" ? "success" : "warning"} />
+                  </TableCell> : null}
                   <TableCell style={tableCellStyle} align="center">
                     {canView ? (
                       <Tooltip title="عرض الوصل">
@@ -514,7 +523,7 @@ function DeliveryResultsTable({
                 </TableRow>
               ))}
             {rows.length === 0 ? (
-              <EmptyTableRow key="delivery-empty-row" colSpan={showProvideColumn ? 11 : 10} />
+              <EmptyTableRow key="delivery-empty-row" colSpan={10 + Number(Boolean(showProvideColumn)) + Number(showPaymentColumns)} />
             ) : null}
           </TableBody>
         </Table>

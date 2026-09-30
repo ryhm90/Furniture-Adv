@@ -11,6 +11,13 @@ import {
   shapePdfText,
 } from "./pdfArabic";
 
+const CURRENCY_LABEL = "\u062f.\u0639";
+const REPORT_TITLE = "\u062a\u0642\u0631\u064a\u0631 \u0623\u0631\u0635\u062f\u0629 \u0639\u0645\u0644\u0627\u0621 \u0627\u0644\u062c\u0645\u0644\u0629";
+const EXPORT_DATE_LABEL = "\u062a\u0627\u0631\u064a\u062e \u0627\u0644\u062a\u0635\u062f\u064a\u0631";
+const TOTAL_BALANCES_LABEL = "\u0625\u062c\u0645\u0627\u0644\u064a \u0627\u0644\u0623\u0631\u0635\u062f\u0629";
+const CUSTOMERS_COUNT_LABEL = "\u0639\u062f\u062f \u0627\u0644\u0639\u0645\u0644\u0627\u0621";
+const CUSTOMER_NAME_LABEL = "\u0627\u0633\u0645 \u0627\u0644\u0632\u0628\u0648\u0646";
+const BALANCE_LABEL = "\u0627\u0644\u0631\u0635\u064a\u062f";
 const numberFormatter = new Intl.NumberFormat("en-US");
 
 function safeText(value, fallback = "-") {
@@ -28,7 +35,7 @@ function safeNumber(value) {
 }
 
 function formatCurrency(value) {
-  return `${numberFormatter.format(safeNumber(value))} د.ع`;
+  return `${numberFormatter.format(safeNumber(value))} ${CURRENCY_LABEL}`;
 }
 
 export const generateReportWsAll = async (data) => {
@@ -45,17 +52,17 @@ export const generateReportWsAll = async (data) => {
   doc.roundedRect(12, 10, pageWidth - 24, 26, 4, 4, "F");
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(18);
-  doc.text(shapePdfText(doc, "تقرير أرصدة عملاء الجملة"), pageWidth / 2, 22, { align: "center" });
+  doc.text(shapePdfText(doc, REPORT_TITLE), pageWidth / 2, 22, { align: "center" });
 
   doc.setTextColor(15, 23, 42);
   doc.setFontSize(10);
-  renderPdfKeyValueLine(doc, pageWidth, 48, "تاريخ التصدير", exportDate);
-  renderPdfKeyValueLine(doc, pageWidth, 56, "إجمالي الأرصدة", formatCurrency(totalAmount));
-  renderPdfKeyValueLine(doc, pageWidth, 64, "عدد العملاء", numberFormatter.format(rows.length));
+  renderPdfKeyValueLine(doc, pageWidth, 48, EXPORT_DATE_LABEL, exportDate);
+  renderPdfKeyValueLine(doc, pageWidth, 56, TOTAL_BALANCES_LABEL, formatCurrency(totalAmount));
+  renderPdfKeyValueLine(doc, pageWidth, 64, CUSTOMERS_COUNT_LABEL, numberFormatter.format(rows.length));
 
   autoTable(doc, {
     startY: 74,
-    head: [["اسم الزبون", "الرصيد"]],
+    head: [[CUSTOMER_NAME_LABEL, BALANCE_LABEL]],
     body: rows.map((record) => [safeText(record?.affiliate), formatCurrency(record?.MPU)]),
     styles: {
       fontSize: 10,

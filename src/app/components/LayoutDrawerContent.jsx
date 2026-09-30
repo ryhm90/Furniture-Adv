@@ -412,11 +412,12 @@ export default function LayoutDrawerContent({
                 onClick={() => onNavigate("/providers", "إدارة المشتريات المستوردة")}
               />
               <DrawerItem
-                active={pathname.startsWith("/delivery")}
+                active={pathname === "/delivery"}
                 icon={<LocalShippingRoundedIcon />}
                 label="التجهيز"
                 onClick={() => onNavigate("/delivery", "التجهيز")}
               />
+              
               <DrawerItem
                 active={pathname.startsWith("/wholesale")}
                 icon={<StorefrontRoundedIcon />}

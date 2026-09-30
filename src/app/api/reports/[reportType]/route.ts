@@ -222,11 +222,11 @@ export async function POST(
       sqlParts.push(`
         SELECT
           COALESCE(SUM(sm.sum),0) AS totalSales,
-          COALESCE((
+          COALESCE(SUM(COALESCE((
             SELECT SUM(st.RoomCost)
             FROM ${t('selltable')} st
             WHERE st.Invonum = sm.Invonum
-          ),0) AS totalCost,
+          ),0)),0) AS totalCost,
           (
             SELECT ABS(SUM(sb.MoneyPaid))
             FROM ${t('safeboxiqd')} sb

@@ -13,6 +13,28 @@ import {
 import { mapWholesaleTransactionType } from "./mapWholesaleTransactionType.js";
 
 const DASH_LABEL = "-";
+const CURRENCY_LABEL = "\u062f.\u0639";
+const WHOLESALE_CUSTOMER_LABEL = "\u0639\u0645\u064a\u0644 \u0627\u0644\u062c\u0645\u0644\u0629";
+const REPORT_TITLE = "\u0643\u0634\u0641 \u062d\u0633\u0627\u0628 \u0639\u0645\u064a\u0644 \u0627\u0644\u062c\u0645\u0644\u0629";
+const EXPORT_DATE_LABEL = "\u062a\u0627\u0631\u064a\u062e \u0627\u0644\u062a\u0635\u062f\u064a\u0631";
+const TOTAL_MOVEMENT_LABEL = "\u0625\u062c\u0645\u0627\u0644\u064a \u0627\u0644\u062d\u0631\u0643\u0629";
+const INVOICE_NUMBER_LABEL = "\u0631\u0642\u0645 \u0627\u0644\u0641\u0627\u062a\u0648\u0631\u0629";
+const DATE_LABEL = "\u0627\u0644\u062a\u0627\u0631\u064a\u062e";
+const TRANSACTION_TYPE_LABEL = "\u0646\u0648\u0639 \u0627\u0644\u062d\u0631\u0643\u0629";
+const ITEMS_LABEL = "\u0627\u0644\u0645\u0648\u0627\u062f";
+const COUNT_LABEL = "\u0627\u0644\u0639\u062f\u062f";
+const ADDRESS_LABEL = "\u0627\u0644\u0639\u0646\u0648\u0627\u0646";
+const DRIVER_LABEL = "\u0627\u0644\u0633\u0627\u0626\u0642";
+const AMOUNT_LABEL = "\u0627\u0644\u0645\u0628\u0644\u063a";
+const CUMULATIVE_BALANCE_LABEL = "\u0627\u0644\u0631\u0635\u064a\u062f \u0627\u0644\u062a\u0631\u0627\u0643\u0645\u064a";
+const TRANSACTIONS_COUNT_LABEL = "\u0639\u062f\u062f \u0627\u0644\u062d\u0631\u0643\u0627\u062a";
+const PURCHASES_COUNT_LABEL = "\u0639\u0645\u0644\u064a\u0627\u062a \u0627\u0644\u0634\u0631\u0627\u0621";
+const PAYMENTS_COUNT_LABEL = "\u0639\u0645\u0644\u064a\u0627\u062a \u0627\u0644\u062a\u0633\u062f\u064a\u062f";
+const CANCELLED_COUNT_LABEL = "\u0639\u0645\u0644\u064a\u0627\u062a \u0645\u0644\u063a\u0627\u0629";
+const CLOSING_BALANCE_LABEL = "\u0627\u0644\u0631\u0635\u064a\u062f \u0627\u0644\u062e\u062a\u0627\u0645\u064a";
+const BUY_LABEL = "\u0634\u0631\u0627\u0621";
+const PAYMENT_LABEL = "\u062a\u0633\u062f\u064a\u062f";
+const CANCELLED_LABEL = "\u0645\u0644\u063a\u0627\u0629";
 const numberFormatter = new Intl.NumberFormat("en-US");
 
 function safeText(value, fallback = DASH_LABEL) {
@@ -30,7 +52,7 @@ function safeNumber(value) {
 }
 
 function formatCurrency(value) {
-  return `${numberFormatter.format(safeNumber(value))} د.ع`;
+  return `${numberFormatter.format(safeNumber(value))} ${CURRENCY_LABEL}`;
 }
 
 function formatStatementDate(value) {
@@ -53,21 +75,21 @@ function buildAddress(record) {
 }
 
 function getTransactionTone(typeLabel) {
-  if (typeLabel === "شراء") {
+  if (typeLabel === BUY_LABEL) {
     return {
       fillColor: [220, 252, 231],
       textColor: [22, 101, 52],
     };
   }
 
-  if (typeLabel === "تسديد") {
+  if (typeLabel === PAYMENT_LABEL) {
     return {
       fillColor: [219, 234, 254],
       textColor: [30, 64, 175],
     };
   }
 
-  if (typeLabel === "ملغاة") {
+  if (typeLabel === CANCELLED_LABEL) {
     return {
       fillColor: [254, 226, 226],
       textColor: [185, 28, 28],
@@ -79,7 +101,7 @@ function getTransactionTone(typeLabel) {
 
 export const generateReportWs = async (data, affiliate) => {
   const rows = Array.isArray(data) ? data : [];
-  const customerName = safeText(affiliate, "عميل الجملة");
+  const customerName = safeText(affiliate, WHOLESALE_CUSTOMER_LABEL);
   const exportDate = format(new Date(), "yyyy-MM-dd");
   const doc = new jsPDF({ orientation: "landscape", format: "a4", unit: "mm" });
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -97,11 +119,11 @@ export const generateReportWs = async (data, affiliate) => {
     const typeLabel = safeText(mapWholesaleTransactionType(record?.De));
     cumulativeBalance += amount;
 
-    if (typeLabel === "شراء") {
+    if (typeLabel === BUY_LABEL) {
       purchasesCount += 1;
-    } else if (typeLabel === "تسديد") {
+    } else if (typeLabel === PAYMENT_LABEL) {
       paymentsCount += 1;
-    } else if (typeLabel === "ملغاة") {
+    } else if (typeLabel === CANCELLED_LABEL) {
       cancelledCount += 1;
     }
 
@@ -127,21 +149,21 @@ export const generateReportWs = async (data, affiliate) => {
   doc.roundedRect(12, 10, pageWidth - 24, 28, 4, 4, "F");
   doc.setTextColor(255, 255, 255);
   doc.setFontSize(20);
-  doc.text(shapePdfText(doc, "كشف حساب عميل الجملة"), pageWidth / 2, 21, { align: "center" });
+  doc.text(shapePdfText(doc, REPORT_TITLE), pageWidth / 2, 21, { align: "center" });
   doc.setFontSize(14);
   doc.text(shapePdfText(doc, customerName), pageWidth / 2, 31, { align: "center" });
 
   doc.setTextColor(15, 23, 42);
   doc.setFontSize(10);
-  renderPdfKeyValueLine(doc, pageWidth, 48, "تاريخ التصدير", exportDate);
-  renderPdfKeyValueLine(doc, pageWidth, 56, "إجمالي الحركة", formatCurrency(totalAmount));
+  renderPdfKeyValueLine(doc, pageWidth, 48, EXPORT_DATE_LABEL, exportDate);
+  renderPdfKeyValueLine(doc, pageWidth, 56, TOTAL_MOVEMENT_LABEL, formatCurrency(totalAmount));
 
   const summaryCards = [
-    { title: "عدد الحركات", value: numberFormatter.format(rows.length), color: [20, 55, 62] },
-    { title: "عمليات الشراء", value: numberFormatter.format(purchasesCount), color: [22, 101, 52] },
-    { title: "عمليات التسديد", value: numberFormatter.format(paymentsCount), color: [30, 64, 175] },
-    { title: "عمليات ملغاة", value: numberFormatter.format(cancelledCount), color: [185, 28, 28] },
-    { title: "الرصيد الختامي", value: formatCurrency(cumulativeBalance), color: [91, 33, 182] },
+    { title: TRANSACTIONS_COUNT_LABEL, value: numberFormatter.format(rows.length), color: [20, 55, 62] },
+    { title: PURCHASES_COUNT_LABEL, value: numberFormatter.format(purchasesCount), color: [22, 101, 52] },
+    { title: PAYMENTS_COUNT_LABEL, value: numberFormatter.format(paymentsCount), color: [30, 64, 175] },
+    { title: CANCELLED_COUNT_LABEL, value: numberFormatter.format(cancelledCount), color: [185, 28, 28] },
+    { title: CLOSING_BALANCE_LABEL, value: formatCurrency(cumulativeBalance), color: [91, 33, 182] },
   ];
 
   summaryCards.forEach((card, index) => {
@@ -160,15 +182,15 @@ export const generateReportWs = async (data, affiliate) => {
   autoTable(doc, {
     startY: 96,
     head: [[
-      "رقم الفاتورة",
-      "التاريخ",
-      "نوع الحركة",
-      "المواد",
-      "العدد",
-      "العنوان",
-      "السائق",
-      "المبلغ",
-      "الرصيد التراكمي",
+      INVOICE_NUMBER_LABEL,
+      DATE_LABEL,
+      TRANSACTION_TYPE_LABEL,
+      ITEMS_LABEL,
+      COUNT_LABEL,
+      ADDRESS_LABEL,
+      DRIVER_LABEL,
+      AMOUNT_LABEL,
+      CUMULATIVE_BALANCE_LABEL,
     ]],
     body: tableRows.map((row) => row.cells),
     styles: {

@@ -31,6 +31,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const requestedAmount = Number(MPU);
+    if (!Number.isFinite(requestedAmount) || requestedAmount <= 0) {
+      return NextResponse.json(
+        { message: "Invalid payment amount." },
+        { status: 400 },
+      );
+    }
+
     const currentTime = new Date().toLocaleTimeString("en-GB", { hour12: false });
     const db = await pool.getConnection();
 
@@ -60,32 +68,23 @@ export async function POST(request: NextRequest) {
           INSERT INTO \`${dbName}\`.affiliatepu (affiliate, MPU, de, date, Time, affiliateID)
           VALUES (?, ?, ?, ?, ?, ?)
         `,
-        [affiliate, MPU, "Payment", normalizedPaymentDate, currentTime, affiliateID],
+        [affiliate, requestedAmount, "Payment", normalizedPaymentDate, currentTime, affiliateID],
       );
       await db.execute<ResultSetHeader>(
         `
           INSERT INTO \`${dbName}\`.affiliatepu_temp (affiliate, MPU, de, date, Time, affiliateID)
           VALUES (?, ?, ?, ?, ?, ?)
         `,
-        [affiliate, MPU, "Payment", normalizedPaymentDate, currentTime, affiliateID],
+        [affiliate, requestedAmount, "Payment", normalizedPaymentDate, currentTime, affiliateID],
       );
 
-      const [affiliatePUTemp]: any = await db.query(
-        `SELECT SUM(MPU) AS totalSum FROM \`${dbName}\`.affiliatepu_temp WHERE affiliateID = ?`,
-        [affiliateID],
-      );
-
-      let remainingMPU = affiliatePUTemp[0]?.totalSum || 0;
+      let remainingMPU = requestedAmount;
 
       for (const row of sellMoneyRows) {
         const { InvoNum, moneyremain } = row;
 
         if (remainingMPU <= 0) {
-          await db.commit();
-          return NextResponse.json(
-            { message: "Operation completed successfully." },
-            { status: 200 },
-          );
+          break;
         }
 
         const amountToDeduct = Math.min(moneyremain, remainingMPU);
@@ -118,10 +117,10 @@ export async function POST(request: NextRequest) {
         remainingMPU -= amountToDeduct;
       }
 
-      if (remainingMPU >= 0) {
+      if (remainingMPU > 0) {
         await db.rollback();
         return NextResponse.json(
-          { message: "Not all MPU could be processed due to insufficient funds." },
+          { message: "Payment amount exceeds the customer's remaining balance." },
           { status: 400 },
         );
       }

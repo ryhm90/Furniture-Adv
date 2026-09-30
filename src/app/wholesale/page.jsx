@@ -326,23 +326,33 @@ function Wholesale() {
 
   const handlePaymentSubmit = async () => {
     if (!paymentData.MPU || Number.isNaN(Number.parseFloat(paymentData.MPU))) {
-      toast.error("أدخل مبلغًا صحيحًا.");
+      toast.error("???? ?????? ??????.");
       return;
     }
 
     if (!paymentData.paymentDate) {
-      toast.error("يرجى تحديد تاريخ التسديد.");
+      toast.error("???? ????? ????? ???????.");
       return;
     }
 
     try {
-      await axios.post("/api/sellmoney-ws/affiliatePU", paymentData, { cache: "no-store" });
-      toast.success("تم تسجيل التعزيز بنجاح.");
+      const response = await axios.post("/api/sellmoney-ws/affiliatePU", paymentData, {
+        cache: "no-store",
+      });
+
+      toast.success(response?.data?.message || "?? ????? ??????? ?????.");
       setPaymentDialogOpen(false);
       fetchData();
-    } catch (_error) {
-      setPaymentDialogOpen(false);
-      toast.warning("لا توجد فواتير غير مدفوعة لهذا الزبون.");
+    } catch (error) {
+      const errorMessage =
+        error?.response?.data?.message || "???? ????? ??????? ???? ??????.";
+
+      if (error?.response?.status === 404) {
+        toast.warning("?? ???? ?????? ??? ?????? ???? ??????.");
+      } else {
+        toast.error(errorMessage);
+      }
+
       fetchData();
     }
   };
