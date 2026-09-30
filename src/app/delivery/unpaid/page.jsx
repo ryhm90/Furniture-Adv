@@ -140,7 +140,7 @@ export default function UnpaidDeliveryPage() {
       <Stack spacing={3}>
         <Card sx={{ borderRadius: 3, background: "linear-gradient(135deg, #f3f7f7, #e8f2f2)" }}><CardContent>
           <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={2}>
-            <Box><Typography variant="h5">الوصولات غير المسددة</Typography><Typography sx={{ mt: 1 }}>متابعة المتبقي من مبالغ الزبائن وأجور السائق غير المصروفة للوصولات المجهزة حسب تاريخ التجهيز.</Typography></Box>
+            <Box><Typography variant="h5">الوصولات غير المسددة</Typography><Typography sx={{ mt: 1 }}>متابعة المتبقي من مبالغ الزبائن وأجور السائق غير المصروفة للوصولات المجهزة وغير المجهزة حسب تاريخ التجهيز.</Typography></Box>
             <Button component={Link} href="/delivery">إدارة التجهيز والسائقين</Button>
           </Stack>
         </CardContent></Card>
@@ -155,7 +155,7 @@ export default function UnpaidDeliveryPage() {
             <TextField label="رقم الوصل أو الزبون أو الهاتف" {...field("query")} fullWidth />
             <Button variant="contained" disabled={busy} onClick={search} sx={{ minWidth: 110, bgcolor: "#386e6e" }}>بحث</Button>
           </Stack>
-          <Typography variant="body2">الفترة تشمل يوم البداية ويوم النهاية. تظهر وصولات المفرد غير الملغاة التي بقي عليها مبلغ من الزبون، وكذلك الوصولات المجهزة التي لم تُصرف أجور سائقها حتى لو سدد الزبون بالكامل.</Typography>
+          <Typography variant="body2">الفترة تشمل يوم البداية ويوم النهاية. تظهر وصولات المفرد غير الملغاة التي بقي عليها مبلغ من الزبون أو لم تُصرف أجور سائقها، سواء كانت مجهزة أم غير مجهزة، حتى لو كان المتبقي على الزبون صفراً.</Typography>
           {dirty && applied ? <Alert severity="info">تغيرت الفلاتر؛ اضغط بحث لتحديث النتائج وتفعيل الإجراءات.</Alert> : null}
         </Stack></CardContent></Card>
 
@@ -169,7 +169,7 @@ export default function UnpaidDeliveryPage() {
           </Stack>
           {manager ? <Card sx={{ borderRadius: 3 }}><CardContent><Stack spacing={2}>
             <Typography variant="h6">إجراءات جميع نتائج البحث</Typography>
-            <Alert severity="info">تشمل الإجراءات الوصولات المؤهلة في جميع صفحات الجدول. صرف الأجور متاح للمجهزة ذات السائق والمحافظة المحددين، حتى لو سدد الزبون بالكامل، مع استبعاد الأجور المصروفة سابقاً. يبقى الوصل المجهز في القائمة إلى حين تسديد الزبون وصرف أجور السائق.</Alert>
+            <Alert severity="info">تشمل الإجراءات الوصولات المؤهلة في جميع صفحات الجدول. صرف الأجور متاح للمجهزة ذات السائق والمحافظة المحددين، حتى لو سدد الزبون بالكامل، مع استبعاد الأجور المصروفة سابقاً. تظهر الوصولات غير المجهزة للمتابعة ويُتاح صرف أجورها بعد تجهيزها. يبقى الوصل في القائمة إلى حين تسديد الزبون وصرف أجور السائق.</Alert>
             <Stack direction={{ xs: "column", md: "row" }} spacing={2}>
               <TextField label="أجرة السائق لكل وصل في بغداد (د.ع)" value={baghdadAmount} onChange={(event) => setBaghdadAmount(event.target.value)} disabled={busy || !baghdadCount} inputProps={{ inputMode: "numeric" }} error={Boolean(baghdadCount && baghdadAmount && !validAmount(baghdadAmount))} helperText={`${baghdadCount} وصل مؤهل${baghdadCount ? " — مثال: 15,000 أو ١٥٠٠٠" : " — لا يلزم إدخال مبلغ"}`} fullWidth />
               <TextField label="أجرة السائق لكل وصل خارج بغداد (د.ع)" value={otherAmount} onChange={(event) => setOtherAmount(event.target.value)} disabled={busy || !otherCount} inputProps={{ inputMode: "numeric" }} error={Boolean(otherCount && otherAmount && !validAmount(otherAmount))} helperText={`${otherCount} وصل مؤهل${otherCount ? " — التصنيف حسب المحافظة" : " — لا يلزم إدخال مبلغ"}`} fullWidth />

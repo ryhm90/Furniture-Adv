@@ -18,7 +18,7 @@ export async function GET(request: Request) {
     if (!["all", "ready", "pending"].includes(status)) return fail("الفلاتر غير صالحة.");
     const conditions = ["sm.Provide >= ?", "sm.Provide < DATE_ADD(?, INTERVAL 1 DAY)", "COALESCE(sm.Por, '') <> 'ملغى'", "LOWER(COALESCE(sm.wholesale, '')) <> 'y'"];
     const values: string[] = [from!, to!];
-    conditions.push("(sm.MoneyRemain > 0 OR (sm.warehouseS = 'جهزت' AND COALESCE(sm.Driverflag, '') <> 'Paid'))");
+    conditions.push("(sm.MoneyRemain > 0 OR COALESCE(sm.Driverflag, '') <> 'Paid')");
     if (status === "ready") conditions.push("sm.warehouseS = 'جهزت'");
     if (status === "pending") conditions.push("COALESCE(sm.warehouseS, '') <> 'جهزت'");
     const query = params.get("query")?.trim();

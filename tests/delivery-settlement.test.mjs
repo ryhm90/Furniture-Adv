@@ -171,9 +171,11 @@ test("driver payout works with MySQL schema and cannot be paid twice", { skip: p
       assert.equal(response.status, 200);
       return response.data.map((row) => row.InvoNum).sort();
     };
-    assert.deepEqual(await listedNumbers(), ["100", "101", "107"]);
+    assert.deepEqual(await listedNumbers(), ["100", "101", "102", "107"]);
     assert.deepEqual(await listedNumbers("&status=ready"), ["100", "101"]);
-    assert.deepEqual(await listedNumbers("&status=pending"), ["107"]);
+    assert.deepEqual(await listedNumbers("&status=pending"), ["102", "107"]);
+    assert.deepEqual(await listedNumbers("&query=102"), ["102"]);
+    assert.equal((await h.post(bodyFor([{ ...dated, InvoNum: "102", warehouseS: "لم تجهز", MoneyRemain: 0 }], "driver"))).status, 409);
     assert.deepEqual(await listedNumbers("&query=101"), ["101"]);
     const body = { ...bodyFor(fixtures, "driver"), baghdadAmount: "١٥٬٠٠٠", otherAmount: "25,000" };
     assert.equal((await h.post(body)).status, 200);
@@ -185,9 +187,9 @@ test("driver payout works with MySQL schema and cannot be paid twice", { skip: p
     assert.equal((await h.post(body)).status, 409);
     const [[count]] = await connection.query("SELECT COUNT(*) AS count FROM codex_driver_test_safeboxiqd");
     assert.equal(count.count, 2);
-    assert.deepEqual(await listedNumbers(), ["100", "107"]);
+    assert.deepEqual(await listedNumbers(), ["100", "102", "107"]);
     assert.equal((await h.post(bodyFor([dated], "settle"))).status, 200);
-    assert.deepEqual(await listedNumbers(), ["107"]);
+    assert.deepEqual(await listedNumbers(), ["102", "107"]);
   } finally {
     await connection.end();
   }
