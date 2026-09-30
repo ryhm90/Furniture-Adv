@@ -18,7 +18,7 @@ async function harness(rows = [base], options = {}) {
     query: async (sql, args) => {
       events.push({ sql, args });
       if (options.failInsert && sql.startsWith("INSERT")) throw new Error("simulated failure");
-      if (options.connection) return options.connection.query(sql.replace(/`testdb`\.(sellmoney|safeboxiqd)/g, "`codex_driver_test_$1`"), args);
+      if (options.connection) return options.connection.query(sql.replace(/`testdb`\.(sellmoney|safeboxiqd|selltable|entrytable)/g, "`codex_driver_test_$1`"), args);
       return [sql.startsWith("SELECT") ? rows : { affectedRows: 1 }];
     },
   };
@@ -91,13 +91,22 @@ test("stale balances, pending, canceled and wholesale invoices cannot be settled
 });
 
 test("driver payout rejects repeats, missing assignments, changed province and invalid rates", async () => {
-  for (const change of [{ Driverflag: "Paid" }, { Driver: "" }, { Provin: "" }, { Provin: "بابل" }, { MoneyRemain: 0 }]) {
+  for (const change of [{ Driverflag: "Paid" }, { Driver: "" }, { Provin: "" }, { Provin: "بابل" }, { warehouseS: "لم تجهز" }]) {
     const h = await harness([{ ...base, ...change }]);
     assert.equal((await h.post(bodyFor([base], "driver"))).status, 409);
     assert.ok(!h.events.includes("commit"));
   }
   const h = await harness();
   assert.equal((await h.post({ ...bodyFor([base], "driver"), baghdadAmount: -1 })).status, 400);
+});
+
+test("customer settlement does not prevent paying the driver", async () => {
+  const settled = { ...base, MoneyRemain: 0 };
+  const h = await harness([settled]);
+  const response = await h.post(bodyFor([settled], "driver"));
+  assert.equal(response.status, 200);
+  assert.equal(response.data.total, 15000);
+  assert.ok(!h.events.some((event) => event.sql?.includes("SET MoneyPaid")));
 });
 
 test("failed cash entry rolls back the batch and releases connection", async () => {
@@ -142,19 +151,43 @@ test("driver payout works with MySQL schema and cannot be paid twice", { skip: p
   try {
     await connection.query("CREATE TEMPORARY TABLE codex_driver_test_sellmoney LIKE sellmoney");
     await connection.query("CREATE TEMPORARY TABLE codex_driver_test_safeboxiqd LIKE safeboxiqd");
-    const fixtures = [{ ...base, wholesale: null }, { ...base, wholesale: null, InvoNum: "101", Provin: "بابل" }];
+    await connection.query("CREATE TEMPORARY TABLE codex_driver_test_selltable LIKE selltable");
+    await connection.query("CREATE TEMPORARY TABLE codex_driver_test_entrytable LIKE entrytable");
+    const dated = { ...base, wholesale: null, Provide: "2026-09-30" };
+    const fixtures = [dated, { ...dated, InvoNum: "101", Provin: "بابل", MoneyRemain: 0, Driverflag: null }];
     for (const row of fixtures) await connection.query("INSERT INTO codex_driver_test_sellmoney SET ?", row);
+    for (const changes of [
+      { InvoNum: "102", warehouseS: "لم تجهز", MoneyRemain: 0 },
+      { InvoNum: "103", Driverflag: "Paid", MoneyRemain: 0 },
+      { InvoNum: "104", Por: "ملغى", MoneyRemain: 0 },
+      { InvoNum: "105", Provide: "2026-08-31", MoneyRemain: 0 },
+      { InvoNum: "106", wholesale: "Y", MoneyRemain: 0 },
+      { InvoNum: "107", warehouseS: "لم تجهز" },
+    ]) await connection.query("INSERT INTO codex_driver_test_sellmoney SET ?", { ...dated, ...changes });
     const h = await harness([], { connection });
+    const query = "from=2026-09-01&to=2026-09-30";
+    const listedNumbers = async (filters = "") => {
+      const response = await h.get(query + filters);
+      assert.equal(response.status, 200);
+      return response.data.map((row) => row.InvoNum).sort();
+    };
+    assert.deepEqual(await listedNumbers(), ["100", "101", "107"]);
+    assert.deepEqual(await listedNumbers("&status=ready"), ["100", "101"]);
+    assert.deepEqual(await listedNumbers("&status=pending"), ["107"]);
+    assert.deepEqual(await listedNumbers("&query=101"), ["101"]);
     const body = { ...bodyFor(fixtures, "driver"), baghdadAmount: "١٥٬٠٠٠", otherAmount: "25,000" };
     assert.equal((await h.post(body)).status, 200);
     const [ledger] = await connection.query("SELECT MoneyPaid, type, name FROM codex_driver_test_safeboxiqd ORDER BY details");
     assert.deepEqual(ledger.map((row) => Number(row.MoneyPaid)), [-15000, -25000]);
     assert.ok(ledger.every((row) => row.type === "Driver" && row.name === base.Driver));
-    const [invoices] = await connection.query("SELECT Driverflag, MoneyRemain FROM codex_driver_test_sellmoney");
-    assert.ok(invoices.every((row) => row.Driverflag === "Paid" && Number(row.MoneyRemain) === base.MoneyRemain));
+    const [invoices] = await connection.query("SELECT InvoNum, Driverflag, MoneyRemain FROM codex_driver_test_sellmoney WHERE InvoNum IN ('100', '101')");
+    assert.ok(invoices.every((row) => row.Driverflag === "Paid" && Number(row.MoneyRemain) === fixtures.find((fixture) => fixture.InvoNum === row.InvoNum).MoneyRemain));
     assert.equal((await h.post(body)).status, 409);
     const [[count]] = await connection.query("SELECT COUNT(*) AS count FROM codex_driver_test_safeboxiqd");
     assert.equal(count.count, 2);
+    assert.deepEqual(await listedNumbers(), ["100", "107"]);
+    assert.equal((await h.post(bodyFor([dated], "settle"))).status, 200);
+    assert.deepEqual(await listedNumbers(), ["107"]);
   } finally {
     await connection.end();
   }

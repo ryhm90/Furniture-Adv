@@ -18,7 +18,7 @@ export async function GET(request: Request) {
     if (!["all", "ready", "pending"].includes(status)) return fail("الفلاتر غير صالحة.");
     const conditions = ["sm.Provide >= ?", "sm.Provide < DATE_ADD(?, INTERVAL 1 DAY)", "COALESCE(sm.Por, '') <> 'ملغى'", "LOWER(COALESCE(sm.wholesale, '')) <> 'y'"];
     const values: string[] = [from!, to!];
-    conditions.push("sm.MoneyRemain > 0");
+    conditions.push("(sm.MoneyRemain > 0 OR (sm.warehouseS = 'جهزت' AND COALESCE(sm.Driverflag, '') <> 'Paid'))");
     if (status === "ready") conditions.push("sm.warehouseS = 'جهزت'");
     if (status === "pending") conditions.push("COALESCE(sm.warehouseS, '') <> 'جهزت'");
     const query = params.get("query")?.trim();
@@ -66,7 +66,7 @@ export async function POST(request: Request) {
         const snapshot: any = snapshots.get(String(row.InvoNum));
         const eligible = row.Por !== "ملغى" && String(row.wholesale ?? "").toLowerCase() !== "y" &&
           (action === "settle" ? canSettle(row) && Number(snapshot?.moneyRemain) === Number(row.MoneyRemain) :
-            Number(row.MoneyRemain) > 0 && canPayDriver(row) && snapshot?.driver === row.Driver && snapshot?.province === row.Provin);
+            canPayDriver(row) && snapshot?.driver === row.Driver && snapshot?.province === row.Provin);
         if (!eligible) {
           await db.rollback();
           return fail(`تغيرت بيانات الوصل ${row.InvoNum} أو أنه غير مؤهل. أعد البحث؛ لم يتم تسجيل أي مبلغ.`, 409);

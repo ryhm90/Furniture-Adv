@@ -484,6 +484,7 @@ function DeliveryResultsTable({
                       </Tooltip>
                     ) : null}
                     {role === "Manager" &&
+                    (!showPaymentColumns || Number(row.MoneyRemain) > 0) &&
                     row.warehouseS === "جهزت" &&
                     row.Por !== "ملغى" &&
                     row.wholesale !== "Y" ? (
